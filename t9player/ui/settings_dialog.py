@@ -134,6 +134,7 @@ class SettingsDialog(QDialog):
     folders_changed = Signal(list, list)      # new list, removed folders
     rescan_requested = Signal()
     update_check_requested = Signal()
+    tour_requested = Signal()
     restart_requested = Signal()
     online_covers_changed = Signal(bool)
     rain_changed = Signal(bool)
@@ -680,6 +681,14 @@ class SettingsDialog(QDialog):
             ver_row.addWidget(link)
         ver_row.addStretch(1)
         form.addRow(tr("Version"), ver_row)
+        tour = QPushButton(tr("Show the tour again"))
+        tour.setToolTip(tr("The short walk-through of the main features from the first start"))
+        tour.setCursor(Qt.PointingHandCursor)
+        tour.clicked.connect(lambda: (self.close(), self.tour_requested.emit()))
+        tour_row = QHBoxLayout()
+        tour_row.addWidget(tour)
+        tour_row.addStretch(1)
+        form.addRow(tr("Tour"), tour_row)
         keys = QLabel(tr(
             "Space - play / pause\n"
             "Ctrl+Left / Ctrl+Right - previous / next song\n"

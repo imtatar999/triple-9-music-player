@@ -530,4 +530,7 @@ PL = {
     'Pick a theme inspired by his albums, change the language, turn on bit-perfect playback...': 'Wybierz motyw inspirowany jego albumami, zmień język, włącz odtwarzanie bit-perfect...',
     "That's it - enjoy!": 'To wszystko – miłego słuchania!',
     'Turn every negative into a positive. 999 forever.': 'Zamień każde zło w coś dobrego. 999 forever.',
+    'Show the tour again': 'Pokaż samouczek jeszcze raz',
+    'The short walk-through of the main features from the first start': 'Krótkie oprowadzenie po najważniejszych funkcjach, to samo co przy pierwszym uruchomieniu',
+    'Tour': 'Samouczek',
 }

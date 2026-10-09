@@ -1482,6 +1482,7 @@ class MainWindow(QMainWindow):
             dlg.folders_changed.connect(self._on_folders_changed)
             dlg.rescan_requested.connect(self.rescan)
             dlg.update_check_requested.connect(lambda: self.check_for_update(manual=True))
+            dlg.tour_requested.connect(lambda: QTimer.singleShot(150, self.show_tour))
             dlg.restart_requested.connect(self.restart)
             dlg.online_covers_changed.connect(self._on_online_covers_changed)
             dlg.rain_changed.connect(self._set_rain)
