@@ -113,6 +113,7 @@ def main(argv=None, on_ready=None):
 
     from . import i18n, theme
     from .settings import Settings
+    fresh_install = not os.path.exists(paths.SETTINGS_FILE)     # no settings yet: first start ever
     settings = Settings()
     theme.load_fonts()
     i18n.set_language(settings["language"])
@@ -135,6 +136,7 @@ def main(argv=None, on_ready=None):
     player = Player(library, settings)
     covers = CoverLoader()
     window = MainWindow(settings, library, player, covers)
+    window.fresh_install = fresh_install
     window.setWindowIcon(QIcon(paths.ICON_FILE))
 
     class AppFilter(QObject):

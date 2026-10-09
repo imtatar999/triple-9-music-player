@@ -362,6 +362,8 @@ class MainWindow(QMainWindow):
             self.restore_session()
         if self.settings["rescan_on_start"] and self.settings["library_folders"]:
             QTimer.singleShot(1500, self.rescan)
+        if (getattr(self, "fresh_install", False) or os.environ.get("T9_SHOW_TOUR")) and not self.settings["tour_done"]:
+            QTimer.singleShot(900, self.show_tour)
         last = self.settings["last_run_version"]
         if last != APP_VERSION:
             self.settings.set("last_run_version", APP_VERSION)
@@ -390,6 +392,32 @@ class MainWindow(QMainWindow):
                 else:
                     self.nav.setCurrentRow(row)
                 return
+
+    def show_tour(self):
+        """First-run tour (only after a fresh install; skippable)."""
+        from .tour import TourOverlay
+        steps = [
+            (None, tr("Hey, welcome to Triple 9!"),
+             tr("I'll show you around in 30 seconds. Lossless music, synced lyrics and themes inspired by "
+                "Juice WRLD's albums - 999.")),
+            (self.add_music_btn, tr("Add your music"),
+             tr("Choose the folder with your songs. The player reads the tags, album covers and lyrics by itself.")),
+            (self.nav, tr("Your library"),
+             tr("Home shows your top artists and most played songs. Songs, Albums and Artists are all here too.")),
+            (self.bar.lyrics_btn, tr("Synced lyrics"),
+             tr("Click here (or press L) to see the lyrics move with the song. Click a line to jump there.")),
+            (self.bar.mini_btn, tr("Compact player"),
+             tr("A small window that stays on top while you do other things (Ctrl+M).")),
+            (self.settings_btn, tr("Themes and settings"),
+             tr("Pick a theme inspired by his albums, change the language, turn on bit-perfect playback...")),
+            (None, tr("That's it - enjoy!"),
+             tr("Turn every negative into a positive. 999 forever.")),
+        ]
+        self.settings.set("tour_done", True)
+        self._tour = TourOverlay(self, steps)
+        self._tour.show()
+        self._tour.raise_()
+        self._tour.setFocus()
 
     def collection(self):
         if self._collection is None:
