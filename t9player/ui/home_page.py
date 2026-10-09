@@ -48,16 +48,26 @@ def _daily(items, salt=0):
     return items[(time.localtime().tm_yday + salt) % len(items)]
 
 
+# greetings in the spirit of Juice WRLD's songs (English on purpose: they play on his titles)
+GREETINGS = {
+    "morning": ("Rise and shine - new day, new dreams", "Good morning, legend",
+                "Wake up - no more lucid dreams, time for real ones", "Morning! Let's start the day on a high note"),
+    "afternoon": ("Afternoon, legend - legends never die", "Hope your day is going righteous",
+                  "Afternoon - keep your head up, keep the music on",
+                  "Hard work pays off - take a break with some music"),
+    "evening": ("Good evening - welcome to the WRLD", "Evening, 999 - what are we playing tonight?",
+                "Night drive vibes - fasten your seatbelt", "Wishing you a good night, and a good playlist"),
+    "night": ("Still up? Lucid dreams time", "3 AM and the music hits different",
+              "Can't sleep? Let it all out in the music", "Good night - 999 forever"),
+}
+
+
 def greeting():
     hour = time.localtime().tm_hour
     greetings = theme.extra("greetings")
     if greetings:
         return tr(_daily(greetings[_part_of_day(hour)]))
-    if 5 <= hour < 12:
-        return tr("Good morning")
-    if 12 <= hour < 18:
-        return tr("Good afternoon")
-    return tr("Good evening")
+    return _daily(GREETINGS[_part_of_day(hour)])
 
 
 class HomePage(QScrollArea):
