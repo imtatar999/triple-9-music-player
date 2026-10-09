@@ -12,6 +12,9 @@ Bit-perfect playback · synced lyrics · a fast library · themes inspired by hi
 
 </div>
 
+<p align="center"><img src="docs/themes.jpg" alt="All themes" width="100%"></p>
+<p align="center"><img src="docs/lyrics.jpg" alt="Synced lyrics, albums and the compact player" width="100%"></p>
+
 ---
 
 ## 999
