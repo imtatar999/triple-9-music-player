@@ -3,14 +3,14 @@ language need a restart (one click, the music continues)."""
 
 import os
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QPainter
+from PySide6.QtCore import QRectF, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QFontMetrics, QPainter
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QFileDialog,
                                QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QScrollArea, QSlider, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from .. import APP_NAME, APP_VERSION, audio, i18n, meta, theme
+from .. import APP_NAME, APP_VERSION, audio, i18n, meta, theme, updater
 from ..i18n import tr
 from .decor import DecorPage
 
@@ -668,7 +668,18 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Updates"), upd)
         version = QLabel(f"{APP_NAME} {APP_VERSION}")
         version.setObjectName("Dim")
-        form.addRow(tr("Version"), version)
+        ver_row = QHBoxLayout()
+        ver_row.addWidget(version)
+        ver_row.addSpacing(12)
+        for label, tip, url in ((tr("Project page"), tr("Open the player's page on GitHub"), updater.PROJECT_PAGE),
+                                (tr("What's new"), tr("See what changed in every version"), updater.RELEASES_PAGE)):
+            link = QPushButton(label)
+            link.setToolTip(tip)
+            link.setCursor(Qt.PointingHandCursor)
+            link.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+            ver_row.addWidget(link)
+        ver_row.addStretch(1)
+        form.addRow(tr("Version"), ver_row)
         keys = QLabel(tr(
             "Space - play / pause\n"
             "Ctrl+Left / Ctrl+Right - previous / next song\n"

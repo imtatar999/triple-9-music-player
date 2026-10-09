@@ -502,4 +502,8 @@ PL = {
     'The update could not be downloaded: {error}': 'Nie udało się pobrać aktualizacji: {error}',
     "What's new:": 'Co nowego:',
     'Updated to version {version}': 'Zaktualizowano do wersji {version}',
+    'Project page': 'Strona projektu',
+    "Open the player's page on GitHub": 'Otwórz stronę odtwarzacza na GitHubie',
+    "What's new": 'Co nowego',
+    'See what changed in every version': 'Zobacz, co zmieniło się w każdej wersji',
 }

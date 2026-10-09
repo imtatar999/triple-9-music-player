@@ -53,6 +53,7 @@ def launch_installer(path):
 # --------------------------------------------------------------------------- GitHub releases
 
 GITHUB_REPO = "imtatar999/triple-9-music-player"
+PROJECT_PAGE = f"https://github.com/{GITHUB_REPO}"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
 
 
