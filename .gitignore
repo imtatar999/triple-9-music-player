@@ -1,0 +1,11 @@
+# build output
+build/
+dist/
+__pycache__/
+*.pyc
+
+# never published: the source of the secret themes (only the sealed assets/vault.bin is),
+# and the album-cover artwork and fan fonts, which ship only inside the installer
+private/
+assets/theme_art/
+assets/fonts/

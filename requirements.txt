@@ -1,0 +1,5 @@
+PySide6-Essentials>=6.6
+av>=12.0
+sounddevice>=0.4.6
+mutagen>=1.46
+numpy>=1.24
