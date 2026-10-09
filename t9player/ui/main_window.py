@@ -818,7 +818,9 @@ class MainWindow(QMainWindow):
             act.setChecked(current == source and (path is None or
                                                   (self.covers.overrides.get(album.key) or {}).get("path") == path))
 
-        add(tr("Automatic (official cover from MusicBrainz, else from the songs)"), "auto", icon="sync")
+        add(tr("Automatic (Last.fm, else MusicBrainz, else from the songs)"), "auto", icon="sync")
+        add(tr("Official cover from Last.fm"), "lastfm", icon="album")
+        add(tr("Official cover from MusicBrainz"), "musicbrainz", icon="album")
         add(tr("From the songs (embedded front cover)"), "songs", icon="songs")
         songs = sub.addMenu(tr("From one song..."))
         for t in album.tracks[:40]:
@@ -833,10 +835,13 @@ class MainWindow(QMainWindow):
         ov = self.covers.artist_overrides.get(artist.key) or {}
         current = ov.get("source", "auto")
         sub = menu.addMenu(icons.icon("artist", theme.TEXT, 16), tr("Artist picture"))
-        act = sub.addAction(icons.icon("sync", theme.TEXT, 16), tr("Automatic (photo from the internet, else from a song)"),
-                            lambda: self._set_artist_picture(artist, "auto"))
-        act.setCheckable(True)
-        act.setChecked(current == "auto")
+        for text, source, icon in ((tr("Automatic (Last.fm, else Deezer, else from a song)"), "auto", "sync"),
+                                   (tr("Photo from Last.fm"), "lastfm", "artist"),
+                                   (tr("Photo from Deezer"), "deezer", "artist")):
+            act = sub.addAction(icons.icon(icon, theme.TEXT, 16), text,
+                                lambda _=False, s=source: self._set_artist_picture(artist, s))
+            act.setCheckable(True)
+            act.setChecked(current == source)
         songs = sub.addMenu(tr("From one song..."))
         for t in artist.tracks[:40]:
             a = songs.addAction(t.title, lambda t=t: self._set_artist_picture(artist, "track", t.path))
@@ -1518,12 +1523,16 @@ class MainWindow(QMainWindow):
         self._files_pool.submit(job)
 
     def _on_update_checked(self, found, manual):
+        parent = self._settings_dialog if (self._settings_dialog and self._settings_dialog.isVisible()) else self
         if found == "offline":
-            self.toast.show_message(tr("Could not reach GitHub - check the internet connection"), "warning")
+            QMessageBox.warning(parent, tr("Updates"), tr("Could not reach GitHub - check the internet connection"))
             return
         if found is None:
             if manual:
-                self.toast.show_message(tr("You have the newest version ({version})", version=APP_VERSION))
+                QMessageBox.information(parent, tr("Updates"),
+                                        tr("Your version is up to date.") + "\n\n" +
+                                        tr("You have {app} {version} - the newest version available.",
+                                           app=APP_NAME, version=APP_VERSION))
             return
         version, source, size, notes = found
         self.toast.show_message(tr("New version {version} is available", version=version) + " ✨")

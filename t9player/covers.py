@@ -103,10 +103,17 @@ class CoverLoader(QObject):
             return "file", ov["path"]
         if kind == "track" and os.path.isfile(ov.get("path", "")):
             return "track", ov["path"]
-        if kind != "songs":
-            if musicbrainz.has_cover(album.key):
-                return "file", musicbrainz.cover_file(album.key)
+        # the user's own choice always wins; downloads only fill in where nothing was chosen
+        if kind in ("lastfm", "musicbrainz"):
+            source = "lastfm" if kind == "lastfm" else None
+            if musicbrainz.has_online(album.key, "album", source):
+                return "file", musicbrainz.online_file(album.key, "album", source)
+            self.online.request(album.key, album.title, album.artist, kind)
+        elif kind != "songs":
             self.online.request(album.key, album.title, album.artist)
+            found = musicbrainz.best_online(album.key, "album")
+            if found:
+                return "file", found
         return "track", album.cover_track.path
 
     def album_art(self, album, size=300):
@@ -127,10 +134,16 @@ class CoverLoader(QObject):
         kind = ov.get("source")
         if kind in ("file", "track") and os.path.isfile(ov.get("path", "")):
             return kind, ov["path"]
-        if kind != "songs":
-            if musicbrainz.has_picture(artist.key):
-                return "file", musicbrainz.picture_file(artist.key)
+        if kind in ("lastfm", "deezer"):
+            source = "lastfm" if kind == "lastfm" else None
+            if musicbrainz.has_online(artist.key, "artist", source):
+                return "file", musicbrainz.online_file(artist.key, "artist", source)
+            self.online.request_artist(artist.key, artist.name, kind)
+        elif kind != "songs":
             self.online.request_artist(artist.key, artist.name)
+            found = musicbrainz.best_online(artist.key, "artist")
+            if found:
+                return "file", found
         return "track", artist.cover_track.path
 
     def artist_art(self, artist, size=300):

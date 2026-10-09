@@ -506,4 +506,12 @@ PL = {
     "Open the player's page on GitHub": 'Otwórz stronę odtwarzacza na GitHubie',
     "What's new": 'Co nowego',
     'See what changed in every version': 'Zobacz, co zmieniło się w każdej wersji',
+    'Automatic (Last.fm, else MusicBrainz, else from the songs)': 'Automatycznie (Last.fm, potem MusicBrainz, potem z utworów)',
+    'Official cover from Last.fm': 'Oficjalna okładka z Last.fm',
+    'Official cover from MusicBrainz': 'Oficjalna okładka z MusicBrainz',
+    'Automatic (Last.fm, else Deezer, else from a song)': 'Automatycznie (Last.fm, potem Deezer, potem z utworu)',
+    'Photo from Last.fm': 'Zdjęcie z Last.fm',
+    'Photo from Deezer': 'Zdjęcie z Deezer',
+    'Your version is up to date.': 'Masz najnowszą wersję.',
+    'You have {app} {version} - the newest version available.': 'Masz {app} {version} – to najnowsza dostępna wersja.',
 }
