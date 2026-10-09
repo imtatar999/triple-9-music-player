@@ -34,7 +34,7 @@ DEFAULTS = {
     "theme": "999",
     "unlocked_themes": [],          # before 1.4 (no longer used)
     "theme_keys": {},               # secret theme -> key derived from its code (see vault.py)
-    "language": "auto",             # auto | en | pl
+    "language": "en",               # auto | en | pl - English unless chosen otherwise
     "matrix_rain": True,            # falling code animation in the Matrix theme
     # Library
     "library_folders": [],

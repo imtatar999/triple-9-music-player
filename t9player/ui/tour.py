@@ -6,7 +6,7 @@ Shown once after a fresh install - never after an update - and can be skipped at
 import math
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import theme
@@ -33,79 +33,114 @@ class Mascot(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w = self.width()
-        s = w / 100.0
+        s = self.width() / 100.0
         p.scale(s, s)
         t = self._t
-        bob = math.sin(t * 3.0) * 2.5
+        bob = math.sin(t * 3.0) * 2.0
         p.translate(0, bob)
-        skin, ink = QColor("#8a5a3c"), QColor("#140d0a")
+        skin, ink = QColor("#9a6a48"), QColor("#0e0b0a")
+        hair, tips = QColor("#2b1d16"), QColor("#d2a565")
+        suit, shirt = QColor("#2a2a2f"), QColor("#f2f2f2")
+        pen = QPen(ink, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         # shadow
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(0, 0, 0, 70))
-        p.drawEllipse(QPointF(50, 112 - bob), 26 - bob, 5)
-        # body: black hoodie
+        p.drawEllipse(QPointF(50, 113 - bob), 25 - bob, 4.5)
+        # dreads hanging behind the head and shoulders
+        for i in range(8):
+            x = 30 + i * 5.7
+            sway = math.sin(t * 2.2 + i * 0.8) * 1.8
+            length = 26 + (i % 3) * 5
+            p.setPen(QPen(ink, 6.5, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x, 30), QPointF(x + sway, 30 + length))
+            p.setPen(QPen(hair, 4.6, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x, 30), QPointF(x + sway, 30 + length - 6))
+            p.setPen(QPen(tips, 4.6, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x + sway * 0.8, 30 + length - 6), QPointF(x + sway, 30 + length))
+        # suit jacket with lapels, white shirt and a black tie
         body = QPainterPath()
-        body.moveTo(22, 112)
-        body.cubicTo(22, 82, 34, 74, 50, 74)
-        body.cubicTo(66, 74, 78, 82, 78, 112)
+        body.moveTo(20, 114)
+        body.cubicTo(20, 84, 32, 74, 50, 74)
+        body.cubicTo(68, 74, 80, 84, 80, 114)
         body.closeSubpath()
-        p.setBrush(QColor("#1b1b20"))
-        p.setPen(QPen(ink, 2))
+        p.setPen(pen)
+        p.setBrush(suit)
         p.drawPath(body)
-        # 999 chain
-        p.setPen(QPen(QColor("#e8c46a"), 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawArc(QRectF(36, 70, 28, 20), 200 * 16, 140 * 16)
-        p.setPen(QColor(theme.RED_BRIGHT))
-        f = QFont("Segoe UI", 1)
-        f.setPixelSize(8)
-        f.setBold(True)
-        p.setFont(f)
-        p.drawText(QRectF(38, 86, 24, 10), Qt.AlignCenter, "999")
-        # waving arm
+        shirt_path = QPainterPath()
+        shirt_path.moveTo(42, 75)
+        shirt_path.lineTo(50, 98)
+        shirt_path.lineTo(58, 75)
+        shirt_path.closeSubpath()
+        p.setBrush(shirt)
+        p.drawPath(shirt_path)
+        tie = QPainterPath()
+        tie.moveTo(48, 77)
+        tie.lineTo(52, 77)
+        tie.lineTo(53.5, 95)
+        tie.lineTo(50, 99)
+        tie.lineTo(46.5, 95)
+        tie.closeSubpath()
+        p.setBrush(ink)
+        p.drawPath(tie)
+        p.setBrush(QColor("#1d1d22"))
+        for side in (-1, 1):
+            lapel = QPainterPath()
+            lapel.moveTo(50 + side * 8, 75)
+            lapel.lineTo(50 + side * 2, 96)
+            lapel.lineTo(50 + side * 14, 84)
+            lapel.closeSubpath()
+            p.drawPath(lapel)
+        # waving hand in a suit sleeve
         wave = math.sin(t * 6.0) * 14
         p.save()
-        p.translate(74, 86)
-        p.rotate(-40 + wave)
-        p.setPen(QPen(ink, 2))
-        p.setBrush(QColor("#1b1b20"))
-        p.drawRoundedRect(QRectF(0, -5, 22, 10), 5, 5)
+        p.translate(75, 88)
+        p.rotate(-45 + wave)
+        p.setBrush(suit)
+        p.drawRoundedRect(QRectF(0, -5.5, 22, 11), 5, 5)
+        p.setBrush(shirt)
+        p.drawRect(QRectF(20, -4.5, 3, 9))
         p.setBrush(skin)
-        p.drawEllipse(QPointF(24, 0), 5, 5)
+        p.drawEllipse(QPointF(26, 0), 5, 5)
         p.restore()
-        # dreads behind the head
-        for i in range(9):
-            x = 26 + i * 6
-            sway = math.sin(t * 2.5 + i) * 2
-            length = 22 + (i % 3) * 4
-            p.setPen(QPen(ink, 5, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(x, 30), QPointF(x + sway, 30 + length))
-            tip = QColor("#e8b04a") if i % 2 else QColor(theme.RED_BRIGHT)
-            p.setPen(QPen(tip, 5, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(x + sway * 0.8, 30 + length - 4), QPointF(x + sway, 30 + length))
-        # head
-        p.setPen(QPen(ink, 2))
+        # neck + face
         p.setBrush(skin)
-        p.drawEllipse(QPointF(50, 44), 21, 22)
-        # dreads on top (fringe)
-        for i in range(7):
-            x = 33 + i * 5.7
-            sway = math.sin(t * 2.5 + i * 0.7) * 1.5
-            p.setPen(QPen(ink, 5, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(x, 25), QPointF(x + sway, 38 + (i % 2) * 4))
-        # eyes (blink every few seconds)
-        blink = (t % 3.6) < 0.12
-        p.setPen(QPen(ink, 2))
-        p.setBrush(ink)
-        for ex in (43, 57):
-            if blink:
-                p.drawLine(QPointF(ex - 3, 48), QPointF(ex + 3, 48))
-            else:
-                p.drawEllipse(QPointF(ex, 48), 2.4, 2.8)
-        # smile
-        p.setBrush(Qt.NoBrush)
-        p.drawArc(QRectF(43, 50, 14, 9), 200 * 16, 140 * 16)
+        p.drawRect(QRectF(45, 62, 10, 12))
+        p.drawEllipse(QPointF(50, 46), 19, 21)
+        # round black sunglasses with a little glint
+        p.setPen(QPen(QColor("#b9b9c0"), 1.4))
+        p.drawLine(QPointF(47, 47), QPointF(53, 47))
+        p.setPen(pen)
+        p.setBrush(QColor("#121216"))
+        for ex in (42, 58):
+            p.drawEllipse(QPointF(ex, 48), 6.2, 6.2)
+        glint = 0.5 + 0.5 * math.sin(t * 1.7)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, int(120 + 100 * glint)))
+        for ex in (40, 56):
+            p.drawEllipse(QPointF(ex, 46), 1.6, 1.6)
+        # small calm mouth
+        p.setPen(QPen(ink, 1.4))
+        p.drawLine(QPointF(48, 59), QPointF(52, 59))
+        # fringe: dreads falling over the forehead, tan tips
+        for i in range(8):
+            x = 33 + i * 4.9
+            sway = math.sin(t * 2.2 + i * 0.6) * 1.2
+            end = 38 + (i % 3) * 3
+            p.setPen(QPen(ink, 6, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x, 24), QPointF(x + sway, end))
+            p.setPen(QPen(hair, 4.2, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x, 24), QPointF(x + sway, end - 5))
+            p.setPen(QPen(tips, 4.2, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(x + sway * 0.8, end - 5), QPointF(x + sway, end))
+        # top of the hair
+        p.setPen(pen)
+        p.setBrush(hair)
+        top = QPainterPath()
+        top.moveTo(30, 34)
+        top.cubicTo(30, 18, 40, 13, 50, 13)
+        top.cubicTo(60, 13, 70, 18, 70, 34)
+        top.cubicTo(62, 26, 38, 26, 30, 34)
+        p.drawPath(top)
 
 
 class TourOverlay(QWidget):
@@ -191,8 +226,14 @@ class TourOverlay(QWidget):
             else:
                 by = max(10, min(H - bh - mh - 10, r.center().y() - bh // 2))
         self.bubble.move(bx, by)
-        mx = bx - mw + 12 if bx - mw + 12 > 0 else bx + bw - mw // 2
-        self.mascot.move(mx, by + bh - mh // 2)
+        candidates = [(bx - mw + 12, by + bh - mh // 2), (bx + bw - 12, by + bh - mh // 2),
+                      (bx - mw + 12, by - mh // 2), (bx + bw - 12, by - mh // 2),
+                      (bx + bw // 2 - mw // 2, by - mh + 10), (bx + bw // 2 - mw // 2, by + bh - 10)]
+        for mx, my in candidates:
+            spot = QRect(int(mx), int(my), mw, mh)
+            if self.rect().contains(spot) and (r.isNull() or not spot.intersects(r.adjusted(-8, -8, 8, 8))):
+                break
+        self.mascot.move(int(mx), int(my))
         self.bubble.raise_()
 
     def advance(self):

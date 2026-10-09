@@ -410,8 +410,7 @@ class MainWindow(QMainWindow):
              tr("A small window that stays on top while you do other things (Ctrl+M).")),
             (self.settings_btn, tr("Themes and settings"),
              tr("Pick a theme inspired by his albums, change the language, turn on bit-perfect playback...")),
-            (None, tr("That's it - enjoy!"),
-             tr("Turn every negative into a positive. 999 forever.")),
+            (None, tr("That's it!"), tr("Enjoy listening!")),
         ]
         self.settings.set("tour_done", True)
         self._tour = TourOverlay(self, steps)
