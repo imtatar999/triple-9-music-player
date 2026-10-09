@@ -8,7 +8,7 @@
 
 Bit-perfect playback · synced lyrics · a fast library · themes inspired by his albums
 
-[**⬇ Download the latest version**](https://github.com/imtatar999/triple-9-music-player/releases/latest)
+[**⬇ Download the latest version**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe)
 
 </div>
 
@@ -58,7 +58,7 @@ corner of every one of them.
 
 ## Install
 
-1. Download **`T9MusicPlayer-Setup-X.Y.Z.exe`** from the [latest release](https://github.com/imtatar999/triple-9-music-player/releases/latest).
+1. Download **[`Triple9MusicPlayer-Setup.exe`](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe)** (always the newest version).
 2. Run it. It installs for your user only - no administrator rights needed.
 3. Windows may say *"Windows protected your PC"* because the installer is not code-signed:
    click **More info → Run anyway**.
@@ -102,6 +102,6 @@ Album titles and artwork belong to their owners.
 dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspirowane jego albumami.
 **999** to odwrócone 666 - wszystko złe, przez co przechodzisz, zamień w coś dobrego.
 
-**Instalacja:** pobierz `T9MusicPlayer-Setup-X.Y.Z.exe` z [najnowszego wydania](https://github.com/imtatar999/triple-9-music-player/releases/latest)
+**Instalacja:** pobierz [`Triple9MusicPlayer-Setup.exe`](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe) (zawsze najnowsza wersja)
 i uruchom. Jeśli Windows pokaże ostrzeżenie: *Więcej informacji → Uruchom mimo to*.
 Nowe wersje program wykrywa sam i proponuje ich instalację.

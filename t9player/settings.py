@@ -47,7 +47,8 @@ DEFAULTS = {
     # Window
     "minimize_to_tray": False,
     "global_media_keys": True,
-    "online_updates": True,         # look for a newer release on GitHub at start-up
+    "online_updates": True,
+    "last_run_version": "",         # to say "Updated to X" once after an update         # look for a newer release on GitHub at start-up
     "update_folder": "",            # folder that receives new T9MusicPlayer-Setup-X.Y.Z.exe files
     "mini_on_top": True,
     "window_geometry": "",

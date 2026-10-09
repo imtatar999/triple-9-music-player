@@ -500,4 +500,6 @@ PL = {
     'Downloading the update...': 'Pobieranie aktualizacji...',
     'Cancel': 'Anuluj',
     'The update could not be downloaded: {error}': 'Nie udało się pobrać aktualizacji: {error}',
+    "What's new:": 'Co nowego:',
+    'Updated to version {version}': 'Zaktualizowano do wersji {version}',
 }

@@ -172,6 +172,10 @@ def installer(ver):
     if not os.path.isfile(setup):
         sys.exit("Inno Setup did not produce the installer")
     print(f"  {setup}  ({os.path.getsize(setup) / 1048576:.0f} MB)")
+    # the same file under the fixed name that is attached to the GitHub release
+    release_copy = os.path.join(DIST, "Triple9MusicPlayer-Setup.exe")
+    shutil.copy2(setup, release_copy)
+    print(f"  {release_copy}  <- attach this one to the GitHub release (tag v{ver})")
     return setup
 
 

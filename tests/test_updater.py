@@ -41,11 +41,6 @@ class UpdaterTests(unittest.TestCase):
         import json
         from unittest import mock
 
-        release = {"tag_name": "v9.1.0", "assets": [
-            {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
-            {"name": "T9MusicPlayer-Setup-9.1.0.exe", "browser_download_url": "https://x/T9MusicPlayer-Setup-9.1.0.exe",
-             "size": 123}]}
-
         class Resp(io.BytesIO):
             def __enter__(self):
                 return self
@@ -53,11 +48,24 @@ class UpdaterTests(unittest.TestCase):
             def __exit__(self, *a):
                 return False
 
-        with mock.patch("urllib.request.urlopen", return_value=Resp(json.dumps(release).encode())):
-            self.assertEqual(updater.check_github("1.4.0"), ("9.1.0", "https://x/T9MusicPlayer-Setup-9.1.0.exe", 123))
-        with mock.patch("urllib.request.urlopen", return_value=Resp(json.dumps(release).encode())):
-            self.assertIsNone(updater.check_github("9.1.0"))
+        def latest(release):
+            return mock.patch("urllib.request.urlopen", return_value=Resp(json.dumps(release).encode()))
 
+        fixed = {"tag_name": "v9.1.0", "body": "New stuff", "assets": [
+            {"name": "notes.txt", "browser_download_url": "https://x/notes.txt"},
+            {"name": "Triple9MusicPlayer-Setup.exe", "browser_download_url": "https://x/Triple9MusicPlayer-Setup.exe",
+             "size": 123}]}
+        with latest(fixed):
+            self.assertEqual(updater.check_github("1.4.0"),
+                             ("9.1.0", "https://x/Triple9MusicPlayer-Setup.exe", 123, "New stuff"))
+        with latest(fixed):
+            self.assertIsNone(updater.check_github("9.1.0"))
+        legacy = {"tag_name": "v9.2.0", "assets": [
+            {"name": "T9MusicPlayer-Setup-9.2.0.exe", "browser_download_url": "https://x/T9MusicPlayer-Setup-9.2.0.exe"}]}
+        with latest(legacy):
+            self.assertEqual(updater.check_github("1.4.0")[:2], ("9.2.0", "https://x/T9MusicPlayer-Setup-9.2.0.exe"))
+        with latest({"tag_name": "v9.3.0", "assets": []}):
+            self.assertIsNone(updater.check_github("1.4.0"))        # a release without the installer
 
 if __name__ == "__main__":
     unittest.main()

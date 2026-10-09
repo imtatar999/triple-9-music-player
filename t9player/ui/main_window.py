@@ -362,6 +362,12 @@ class MainWindow(QMainWindow):
             self.restore_session()
         if self.settings["rescan_on_start"] and self.settings["library_folders"]:
             QTimer.singleShot(1500, self.rescan)
+        last = self.settings["last_run_version"]
+        if last != APP_VERSION:
+            self.settings.set("last_run_version", APP_VERSION)
+            if last and updater.parse_version(last) < updater.parse_version(APP_VERSION):
+                QTimer.singleShot(1200, lambda: self.toast.show_message(
+                    tr("Updated to version {version}", version=APP_VERSION) + " ✨", ms=6000))
         if self.settings["update_folder"] or self.settings["online_updates"]:
             QTimer.singleShot(4000, lambda: self.check_for_update(manual=False))
         self._update_welcome()
@@ -1494,7 +1500,7 @@ class MainWindow(QMainWindow):
                 try:
                     hit = updater.find_update(folder)
                     if hit:
-                        found.append((hit[0], hit[1], 0))
+                        found.append((hit[0], hit[1], 0, ""))
                 except Exception:
                     pass
             if online:
@@ -1519,7 +1525,7 @@ class MainWindow(QMainWindow):
             if manual:
                 self.toast.show_message(tr("You have the newest version ({version})", version=APP_VERSION))
             return
-        version, source, size = found
+        version, source, size, notes = found
         self.toast.show_message(tr("New version {version} is available", version=version) + " ✨")
         if self._tray is not None:
             self._tray.showMessage(APP_NAME, tr("New version {version} is available", version=version),
@@ -1529,16 +1535,17 @@ class MainWindow(QMainWindow):
             parent, tr("Update available"),
             tr("{app} {version} is ready to install (you have {current}).", app=APP_NAME, version=version,
                current=APP_VERSION) + "\n\n" +
+            (tr("What's new:") + "\n" + (notes[:700] + ("..." if len(notes) > 700 else "")) + "\n\n" if notes else "") +
             tr("Install it now? The player closes for a moment and starts again.") + "\n" +
             tr("Your library, playlists and settings stay as they are."))
         if answer != QMessageBox.Yes:
             return
         if source.startswith("https://"):
-            self._download_update(source, size, parent)
+            self._download_update(source, size, parent, version)
         else:
             self._install_update(source, parent)
 
-    def _download_update(self, url, size, parent):
+    def _download_update(self, url, size, parent, version=""):
         from PySide6.QtWidgets import QProgressDialog
         dlg = QProgressDialog(tr("Downloading the update..."), tr("Cancel"), 0, 100, parent)
         dlg.setWindowTitle(tr("Update"))
@@ -1558,7 +1565,7 @@ class MainWindow(QMainWindow):
 
         def job():
             try:
-                bridge.update_downloaded.emit(updater.download(url, size, progress))
+                bridge.update_downloaded.emit(updater.download(url, size, progress, version=version))
             except Exception as exc:
                 bridge.update_downloaded.emit(exc)
 
