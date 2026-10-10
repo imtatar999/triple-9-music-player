@@ -189,5 +189,21 @@ class MetaTests(unittest.TestCase):
         self.assertFalse(meta.is_hires(44100, 16))
 
 
+class TokenAfterGaplessTests(unittest.TestCase):
+    def test_engine_speaks_for_the_song_being_heard(self):
+        """After a gapless hand-off, pause / resume events must carry the new song's token
+        (the player ignores the old one - it then thought the music was still playing)."""
+        engine = audio.AudioEngine()
+        try:
+            engine._paths = {1: "first.flac", 3: "second.flac"}
+            engine.token, engine._cur_token = 1, 3
+            engine._sync_token()
+            self.assertEqual(engine.token, 3)
+            engine._cur_token = 99                  # unknown token: leave it alone
+            engine._sync_token()
+            self.assertEqual(engine.token, 3)
+        finally:
+            engine.shutdown()
+
 if __name__ == "__main__":
     unittest.main()

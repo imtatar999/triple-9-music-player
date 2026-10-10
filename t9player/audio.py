@@ -668,8 +668,16 @@ class AudioEngine:
         with self._cmd.mutex:
             return any(c[0] == kind for c in self._cmd.queue)
 
+    def _sync_token(self):
+        """After a gapless hand-off the song being heard is the new one: everything the engine
+        says from now on (pause, resume, reconnect ...) must be about that song."""
+        heard = self._cur_token
+        if heard is not None and heard != self.token and heard in self._paths:
+            self.token = heard
+
     def _handle(self, cmd):
         kind = cmd[0]
+        self._sync_token()
         if kind != "next" and not (kind in ("seek", "load") and self._newer_queued(kind)):
             _log.info("cmd %s %s (state %s, at %.1f s)", kind,
                       " ".join(os.path.basename(str(c)) if isinstance(c, str) else str(c) for c in cmd[1:3]),
@@ -752,6 +760,7 @@ class AudioEngine:
                    else tr("Switched to the new default playback device"))
 
     def _service(self):
+        self._sync_token()
         self._follow_system_default()
         for _ in range(12):
             if not self._needs_data() or not self._decode_one():

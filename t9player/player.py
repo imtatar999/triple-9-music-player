@@ -220,9 +220,15 @@ class Player(QObject):
             if self.queue:
                 self._play_index(max(0, self.index))
             return
-        if self.state == audio.STATE_PLAYING:
+        # the engine knows best whether it is playing; if the two ever disagree, trust the engine
+        state = self.engine.state if self.engine.state != audio.STATE_STOPPED else self.state
+        if state != self.state:
+            _log.warning("player thought %s, engine is %s - following the engine", self.state, state)
+            self.state = state
+            self.state_changed.emit(state)
+        if state == audio.STATE_PLAYING:
             self.engine.pause()
-        elif self.state == audio.STATE_PAUSED:
+        elif state == audio.STATE_PAUSED:
             self.engine.resume()
         else:
             self._play_index(self.index, 0.0)
