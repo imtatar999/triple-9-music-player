@@ -533,4 +533,8 @@ PL = {
     'Tour': 'Samouczek',
     "That's it!": 'To wszystko!',
     'Enjoy listening!': 'Miłego słuchania!',
+    'Open the logs folder': 'Otwórz folder z logami',
+    'Logs': 'Logi',
+    'The program notes what happens (songs played, audio device changes, freezes, errors) in t9player.log - send that file if something goes wrong': 'Program zapisuje, co się dzieje (odtwarzane utwory, zmiany urządzenia audio, zawieszenia, błędy) w pliku t9player.log – wyślij ten plik, jeśli coś pójdzie nie tak',
+    'The audio device is not responding. Check your speakers or headphones and press play to try again.': 'Urządzenie audio nie odpowiada. Sprawdź głośniki lub słuchawki i naciśnij play, aby spróbować ponownie.',
 }

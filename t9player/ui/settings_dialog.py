@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QColorD
                                QListWidgetItem, QPushButton, QScrollArea, QSlider, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from .. import APP_NAME, APP_VERSION, audio, i18n, meta, theme, updater
+from .. import APP_NAME, APP_VERSION, audio, i18n, meta, paths, theme, updater
 from ..i18n import tr
 from .decor import DecorPage
 
@@ -689,6 +689,15 @@ class SettingsDialog(QDialog):
         tour_row.addWidget(tour)
         tour_row.addStretch(1)
         form.addRow(tr("Tour"), tour_row)
+        logs = QPushButton(tr("Open the logs folder"))
+        logs.setToolTip(tr("The program notes what happens (songs played, audio device changes, freezes, errors) "
+                           "in t9player.log - send that file if something goes wrong"))
+        logs.setCursor(Qt.PointingHandCursor)
+        logs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(paths.LOG_DIR)))
+        logs_row = QHBoxLayout()
+        logs_row.addWidget(logs)
+        logs_row.addStretch(1)
+        form.addRow(tr("Logs"), logs_row)
         keys = QLabel(tr(
             "Space - play / pause\n"
             "Ctrl+Left / Ctrl+Right - previous / next song\n"

@@ -22,6 +22,8 @@ import queue
 import sys
 import threading
 import time
+import logging
+import os
 import traceback
 
 import numpy as np
@@ -33,11 +35,14 @@ try:
 except Exception:  # pragma: no cover - reported in the UI
     sd = None
 
+_log = logging.getLogger("t9player.audio")
+
 STATE_STOPPED = "stopped"
 STATE_PLAYING = "playing"
 STATE_PAUSED = "paused"
 
 _FADE_SECONDS = 0.012
+_STALL_SECONDS = 2.0        # a stream that has not asked for audio for this long is dead
 _AHEAD_SECONDS = 2.0
 
 
@@ -483,6 +488,11 @@ class AudioEngine:
         self._default_watch = DefaultOutputWatch()
         self._default_id = None     # Windows' default output when we last looked
         self._default_check = 0.0
+        self._recoveries = []       # times of recent reconnects (to stop endless retrying)
+        self._underruns_logged = 0
+        self._next_health_log = 0.0
+        self.heartbeat = time.perf_counter()     # watched by diagnostics.Watchdog
+        self.thread_id = None
         self._alive = True
         self._thread = threading.Thread(target=self._run, name="T9AudioEngine", daemon=True)
         self._thread.start()
@@ -623,9 +633,15 @@ class AudioEngine:
         self.events.put((kind, token, payload))
 
     # ------------------------------------------------------------------ engine thread
+    @property
+    def alive(self):
+        return self._alive
+
     def _run(self):
         _com_init()
+        self.thread_id = threading.get_ident()
         while self._alive:
+            self.heartbeat = time.perf_counter()
             try:
                 try:
                     cmd = self._cmd.get(timeout=0.005 if self._needs_data() else 0.04)
@@ -636,6 +652,7 @@ class AudioEngine:
                     continue
                 self._service()
             except Exception:
+                _log.exception("engine error")
                 self._post("error", self._dec_token, "Engine: " + traceback.format_exc(limit=3))
                 time.sleep(0.05)
         self._close_stream()
@@ -653,6 +670,10 @@ class AudioEngine:
 
     def _handle(self, cmd):
         kind = cmd[0]
+        if kind != "next" and not (kind in ("seek", "load") and self._newer_queued(kind)):
+            _log.info("cmd %s %s (state %s, at %.1f s)", kind,
+                      " ".join(os.path.basename(str(c)) if isinstance(c, str) else str(c) for c in cmd[1:3]),
+                      self.state, self.position())
         if kind == "load":
             _, path, token, start, paused = cmd
             self._remember(token, path)
@@ -673,7 +694,8 @@ class AudioEngine:
         elif kind == "resume":
             if self.state == STATE_PAUSED:
                 if not self._stream_ok():
-                    self._reopen(self.position(), paused=False)
+                    # the device went away / fell asleep during the pause: start over on a fresh stream
+                    self._recover("the output was not running when playback resumed", paused=False)
                     return
                 self._paused = False
                 self.state = STATE_PLAYING
@@ -739,11 +761,46 @@ class AudioEngine:
             held, self._held_decoder = self._held_decoder, None
             if held is not None:
                 self._install_decoder(held[0], held[1], play=not self._paused)
-        # watchdog: device unplugged / driver stalled
+        now = time.perf_counter()
+        # watchdog: device unplugged / driver stalled while playing
         if (self.state == STATE_PLAYING and self._stream is not None and self._last_cb_perf > 0
-                and time.perf_counter() - self._last_cb_perf > 1.5):
-            self._post("warning", self.token, tr("Audio device stopped responding - reconnecting"))
-            self._reopen(self.position(), paused=False)
+                and now - self._last_cb_perf > 1.5):
+            self._recover("the output stopped asking for audio while playing", paused=False)
+            return
+        # the same during a pause: forget the dead stream, resume will open a new one
+        if (self.state == STATE_PAUSED and self._stream is not None and self._last_cb_perf > 0
+                and now - self._last_cb_perf > _STALL_SECONDS + 1.0):
+            _log.warning("output stream died during the pause (no callback for %.1f s) - closed it",
+                         now - self._last_cb_perf)
+            self._close_stream()
+        if now >= self._next_health_log:
+            self._next_health_log = now + 30.0
+            if self.underruns > self._underruns_logged:
+                _log.warning("%d buffer underrun(s) in the last 30 s", self.underruns - self._underruns_logged)
+                self._underruns_logged = self.underruns
+
+    def _recover(self, reason, paused):
+        """Reconnect to the audio device on a brand-new stream, at the same place in the song.
+        Gives up (and says so) when the device keeps failing, instead of retrying forever."""
+        now = time.perf_counter()
+        self._recoveries = [t for t in self._recoveries if now - t < 20.0] + [now]
+        pos = self.position()
+        _log.warning("audio recovery #%d: %s (at %.1f s, device %r)", len(self._recoveries), reason, pos,
+                     self.output_info.get("device"))
+        self._close_stream()
+        refresh_devices()
+        if len(self._recoveries) > 3:
+            _log.error("audio device keeps failing - stopped retrying, waiting for the user")
+            self._recoveries.clear()
+            self._paused = True
+            self.state = STATE_PAUSED
+            self._seek_target = None
+            self._post("error", self.token, tr("The audio device is not responding. Check your speakers or "
+                                               "headphones and press play to try again."))
+            self._post("state", self.token, STATE_PAUSED)
+            return
+        self._post("warning", self.token, tr("Audio device stopped responding - reconnecting"))
+        self._reopen(pos, paused=paused)
 
     def _open(self, path, start=0.0):
         dec = Decoder(path, start=start)
@@ -1022,19 +1079,30 @@ class AudioEngine:
     # -- output stream ------------------------------------------------------------
     def _stream_ok(self):
         try:
-            return self._stream is not None and self._stream.active
+            if self._stream is None or not self._stream.active:
+                return False
         except Exception:
             return False
+        # PortAudio can report a stream as active after the device has gone to sleep;
+        # it is alive only if it has asked for audio recently (it does so even while paused)
+        return not (self._last_cb_perf > 0 and time.perf_counter() - self._last_cb_perf > _STALL_SECONDS)
 
     def _close_stream(self):
         stream, self._stream, self._stream_key = self._stream, None, None
         self._last_cb_perf = 0.0
         if stream is not None:
-            for action in (stream.abort, stream.close):
-                try:
-                    action()
-                except Exception:
-                    pass
+            # closing a stream on a vanished device can block inside the driver: never let it hang the engine
+            def close():
+                for action in (stream.abort, stream.close):
+                    try:
+                        action()
+                    except Exception:
+                        pass
+            closer = threading.Thread(target=close, name="T9StreamClose", daemon=True)
+            closer.start()
+            closer.join(1.5)
+            if closer.is_alive():
+                _log.warning("closing the old audio stream is hanging in the driver - left it behind")
 
     def _ensure_stream(self, dec):
         if sd is None:
@@ -1102,10 +1170,14 @@ class AudioEngine:
                 last_error = str(exc)
                 self._close_stream()
                 continue
+            self._last_cb_perf = time.perf_counter()     # a stream that never calls back counts as stalled
+            _log.info("output: %s on %r, %d Hz %s, latency %.0f ms", label, self.output_info["device"], rate,
+                      dtype, float(stream.latency) * 1000)
             if self.exclusive and not exclusive:
                 self._post("warning", None, tr("Exclusive mode is not available on this device right now ({reason}) - playing in shared mode", reason=last_error or tr("in use by another app")))
             return True
         self.output_info = {"error": tr("Cannot open the audio device") + f": {last_error}"}
+        _log.error("cannot open the audio device %r: %s", device, last_error)
         return False
 
 

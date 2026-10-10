@@ -5,6 +5,7 @@ the engine's event queue (polled by a timer), so nothing here can block.
 """
 
 import itertools
+import logging
 import random
 import time
 
@@ -12,6 +13,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import audio
 from .i18n import tr
+
+_log = logging.getLogger("t9player.player")
 
 
 class Player(QObject):
@@ -154,6 +157,8 @@ class Player(QObject):
         self.index = qindex
         self._set_current(track)
         self._counted = False
+        _log.info("play %r - %r (%s, queue %d/%d)%s", track.display_artist, track.title, track.format_label,
+                  qindex + 1, len(self.queue), f" from {position:.0f} s" if position else "")
         self.engine.load(track.path, token, position, paused)
         self._send_next()
 
@@ -418,6 +423,7 @@ class Player(QObject):
                 # the pre-decoded next track failed; it will be retried normally
                 return
             name = self.current.title if self.current else "track"
+            _log.error("cannot play %r: %s", name, payload)
             self.message.emit("error", tr("Cannot play \u201c{name}\u201d: {error}", name=name, error=payload))
             if token is not None and token == self._token:
                 self._failures += 1
@@ -429,6 +435,7 @@ class Player(QObject):
                 self.state = audio.STATE_STOPPED
                 self.state_changed.emit(self.state)
         elif kind == "warning":
+            _log.warning("engine: %s", payload)
             self.message.emit("warning", str(payload))
         elif kind == "info":
             self.message.emit("info", str(payload))

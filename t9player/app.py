@@ -20,9 +20,12 @@ def _setup_logging():
             os.replace(log_file, log_file + ".old")
     except OSError:
         pass
-    logging.basicConfig(
-        filename=log_file, level=logging.INFO, encoding="utf-8",
-        format="%(asctime)s %(levelname)s %(threadName)s: %(message)s")
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(threadName)s %(name)s: %(message)s"))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
     try:
         # native crashes (driver bugs etc.) still leave a trace
         fh = open(os.path.join(paths.LOG_DIR, "native_crash.log"), "a", encoding="utf-8")
@@ -137,6 +140,15 @@ def main(argv=None, on_ready=None):
     covers = CoverLoader()
     window = MainWindow(settings, library, player, covers)
     window.fresh_install = fresh_install
+    # freeze detector: the UI ticks every 0.5 s, a watchdog thread notes when it (or the engine) stops
+    from .diagnostics import Watchdog
+    window.watchdog = Watchdog(threading.get_ident(), player.engine)
+    beat = QTimer(window)
+    beat.setInterval(500)
+    beat.timeout.connect(window.watchdog.beat)
+    beat.start()
+    import platform
+    _log.info("Windows %s, Python %s, data in %s", platform.version(), platform.python_version(), paths.DATA_DIR)
     window.setWindowIcon(QIcon(paths.ICON_FILE))
 
     class AppFilter(QObject):
