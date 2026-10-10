@@ -319,7 +319,7 @@ class MainWindow(QMainWindow):
         hp.show_view.connect(self._nav_to)
         self.artist_page.more_menu.connect(self._artist_menu)
         self.bar.lyrics_clicked.connect(self.toggle_lyrics)
-        self.bar.cover_clicked.connect(self.toggle_lyrics)
+        self.bar.cover_clicked.connect(self.toggle_now_playing)
         self.bar.queue_clicked.connect(self.toggle_queue)
         self.bar.mini_clicked.connect(self.show_mini)
         self.bar.title_clicked.connect(self._show_current_album)
@@ -1338,16 +1338,29 @@ class MainWindow(QMainWindow):
     # ================================================================== lyrics view controls
     def toggle_lyrics(self):
         if self.stack.currentWidget() is self.lyrics_page:
-            self.leave_lyrics()
+            if self.lyrics_page.lyrics_visible():
+                self.leave_lyrics()
+            else:
+                # from the cover-only view: bring the lyrics in beside the cover
+                self.lyrics_page.show_lyrics_panel(True, animate=True)
+                self.bar.lyrics_btn.setChecked(True)
         else:
             self.show_lyrics()
 
-    def show_lyrics(self):
+    def toggle_now_playing(self):
+        """Cover in the player bar: the song's cover big in the middle (lyrics only on request)."""
+        if self.stack.currentWidget() is self.lyrics_page:
+            self.leave_lyrics()
+        else:
+            self.show_lyrics(lyrics=False)
+
+    def show_lyrics(self, lyrics=True):
         if self.stack.currentWidget() is not self.lyrics_page:
             self._before_lyrics = self.stack.currentWidget()
+        self.lyrics_page.show_lyrics_panel(lyrics, animate=False)
         self.stack.setCurrentWidget(self.lyrics_page)
         self.sidebar.hide()
-        self.bar.lyrics_btn.setChecked(True)
+        self.bar.lyrics_btn.setChecked(lyrics)
 
     def leave_lyrics(self):
         if self.isFullScreen():

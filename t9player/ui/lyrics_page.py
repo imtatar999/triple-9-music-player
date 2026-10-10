@@ -1,8 +1,12 @@
-"""Full lyrics view: cover on one half, synced lyrics on the other, blurred backdrop."""
+"""Full lyrics view: cover on one half, synced lyrics on the other, blurred backdrop.
 
-from PySide6.QtCore import QRectF, Qt, Signal
+Also the "now playing" view (click the cover in the player bar): the cover alone in the middle.
+Showing the lyrics from there slides the cover to its side and fades the lyrics in.
+"""
+
+from PySide6.QtCore import QEasingCurve, QRect, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import theme
 from ..i18n import tr
@@ -38,7 +42,7 @@ class LyricsPage(QWidget):
         self.artist.setStyleSheet(f"color: {theme.DIM}; font-size: 15px;")
         self.source = QLabel("")
         self.source.setStyleSheet(f"color: {theme.FAINT}; font-size: 11px;")
-        cover_box = QWidget()
+        cover_box = QWidget(self)
         cb = QVBoxLayout(cover_box)
         cb.setContentsMargins(0, 0, 0, 0)
         cb.setSpacing(6)
@@ -52,13 +56,16 @@ class LyricsPage(QWidget):
         self.cover_box = cover_box
 
         self.view = LyricsView(self)
-        self.row = QHBoxLayout()
-        self.row.setContentsMargins(56, 56, 24, 24)
-        self.row.setSpacing(40)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.addLayout(self.row)
-        self._place()
+        # 1.0 = lyrics next to the cover, 0.0 = the cover alone in the middle ("now playing")
+        self._t = 1.0
+        self._fade = QGraphicsOpacityEffect(self.view)
+        self._fade.setEnabled(False)            # only while animating (it costs a render per frame)
+        self.view.setGraphicsEffect(self._fade)
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(520)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._set_t)
+        self._anim.finished.connect(self._anim_done)
 
         # floating toolbar (top-right)
         self.toolbar = QWidget(self)
@@ -123,23 +130,78 @@ class LyricsPage(QWidget):
     def set_cover_side(self, side):
         if side != self._cover_side:
             self._cover_side = side
-            self._place()
+            self._layout()
+            self.update()
             if isinstance(self.rain, GothicNight):
                 self.rain.cover_side = side
+
+    # ------------------------------------------------------------------ now playing / lyrics
+    def lyrics_visible(self):
+        """True when the lyrics are shown (or on their way in)."""
+        if self._anim.state() == QVariantAnimation.Running:
+            return float(self._anim.endValue()) > 0.5
+        return self._t > 0.5
+
+    def show_lyrics_panel(self, show, animate=True):
+        target = 1.0 if show else 0.0
+        self._anim.stop()
+        if not animate or not self.isVisible():
+            self._set_t(target)
+            self._anim_done()
+            return
+        self._fade.setEnabled(True)
+        self.view.show()
+        self._anim.setStartValue(float(self._t))
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def _set_t(self, value):
+        self._t = max(0.0, min(1.0, float(value)))
+        self._fade.setOpacity(max(0.0, (self._t - 0.35) / 0.65))     # the text appears once the cover has moved
+        self._layout()
+        self.update()
+
+    def _anim_done(self):
+        self._fade.setEnabled(0.0 < self._t < 1.0)
+        self.view.setVisible(self._t > 0.0)
+        align = Qt.AlignLeft if self._t > 0.5 else Qt.AlignHCenter
+        for label in (self.title, self.artist, self.source):
+            label.setAlignment(align | Qt.AlignVCenter)
+
+    def _layout(self):
+        """Place the cover and the lyrics for the current mix between the two views."""
+        w, h = self.width(), self.height()
+        pad = int(max(24, min(90, w * 0.045)))
+        top, bottom = max(56, int(h * 0.07)), max(24, int(h * 0.04))
+        area = QRect(pad, top, w - pad - int(pad * 0.5), h - top - bottom)
+        gap = int(max(24, min(80, w * 0.035)))
+        cover_w = int((area.width() - gap) * 9 / 20)
+        view_w = area.width() - gap - cover_w
+        if self._cover_side == "left":
+            split_cover = QRect(area.left(), area.top(), cover_w, area.height())
+            split_view = QRect(area.left() + cover_w + gap, area.top(), view_w, area.height())
+            slide = 1
+        else:
+            split_view = QRect(area.left(), area.top(), view_w, area.height())
+            split_cover = QRect(area.right() - cover_w + 1, area.top(), cover_w, area.height())
+            slide = -1
+        # alone: a bit bigger, in the middle
+        solo_w = int(min(area.width() * 0.62, area.height() * 0.86))
+        solo = QRect(area.left() + (area.width() - solo_w) // 2, area.top(), solo_w, area.height())
+        t = self._t
+
+        def mix(a, b):
+            return int(round(a + (b - a) * t))
+
+        self.cover_box.setGeometry(mix(solo.x(), split_cover.x()), area.top(),
+                                   mix(solo.width(), split_cover.width()), area.height())
+        offset = int((1.0 - t) * 90) * slide       # the lyrics slide in from beside the cover
+        self.view.setGeometry(split_view.translated(offset, 0))
+
 
     def set_fullscreen_icon(self, full):
         self.btn_full.set_icon("fullscreen_exit" if full else "fullscreen")
         self.btn_full.setToolTip(tr("Leave full screen (F11 / Esc)") if full else tr("Full screen (F11)"))
-
-    def _place(self):
-        while self.row.count():
-            self.row.takeAt(0)
-        if self._cover_side == "left":
-            self.row.addWidget(self.cover_box, 9)
-            self.row.addWidget(self.view, 11)
-        else:
-            self.row.addWidget(self.view, 11)
-            self.row.addWidget(self.cover_box, 9)
 
     # ------------------------------------------------------------------ painting
     def resizeEvent(self, event):
@@ -150,10 +212,7 @@ class LyricsPage(QWidget):
         self.toolbar.adjustSize()
         self.toolbar.move(w - self.toolbar.width() - 14, 10)
         self.toolbar.raise_()
-        # scale paddings with the window so full screen breathes
-        pad = int(max(24, min(90, w * 0.045)))
-        self.row.setContentsMargins(pad, max(56, int(h * 0.07)), int(pad * 0.5), max(24, int(h * 0.04)))
-        self.row.setSpacing(int(max(24, min(80, w * 0.035))))
+        self._layout()
         self.view.set_size_factor(max(0.75, min(1.6, h / 820)))
         self.title.setStyleSheet(f"color: {theme.TEXT}; {theme.title_css(int(max(18, min(34, h * 0.03))))}")
         if self.rain is not None:
@@ -172,17 +231,18 @@ class LyricsPage(QWidget):
             p.drawPixmap((r.width() - bs.width()) // 2, (r.height() - bs.height()) // 2, bs)
         else:
             lyrics_background(p, r)
-        # darken the lyrics half for contrast
+        # darken the lyrics half for contrast (evenly while the cover is alone)
         shade = QLinearGradient(0, 0, r.width(), 0)
-        dark = QColor(0, 0, 0, 150)
-        clear = QColor(0, 0, 0, 40)
+        t = self._t
+        dark = QColor(0, 0, 0, int(70 + 80 * t))
+        clear = QColor(0, 0, 0, int(70 - 30 * t))
         if self._cover_side == "left":
             shade.setColorAt(0, clear)
-            shade.setColorAt(0.5, QColor(0, 0, 0, 110))
+            shade.setColorAt(0.5, QColor(0, 0, 0, int(70 + 40 * t)))
             shade.setColorAt(1, dark)
         else:
             shade.setColorAt(0, dark)
-            shade.setColorAt(0.5, QColor(0, 0, 0, 110))
+            shade.setColorAt(0.5, QColor(0, 0, 0, int(70 + 40 * t)))
             shade.setColorAt(1, clear)
         p.fillRect(r, shade)
         if self._overlay is None or self._overlay.size() != r.size():
