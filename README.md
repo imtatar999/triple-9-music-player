@@ -58,7 +58,7 @@ corner of every one of them.
 
 ## Install
 
-1. Download **[`Triple9MusicPlayer-Setup.exe`](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe)** (always the newest version).
+1. Download **[`Triple9MusicPlayer-Setup.exe`]([https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe](https://github.com/imtatar999/triple-9-music-player/releases))** (always the newest version).
 2. Run it. It installs for your user only - no administrator rights needed.
 3. Windows may say *"Windows protected your PC"* because the installer is not code-signed:
    click **More info → Run anyway**.
