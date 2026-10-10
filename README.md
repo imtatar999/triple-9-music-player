@@ -58,10 +58,9 @@ corner of every one of them.
 
 ## Install
 
-1. Download **[`Triple9MusicPlayer-Setup.exe`]([https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe](https://github.com/imtatar999/triple-9-music-player/releases))** (always the newest version).
+1. Open the **[Releases page](https://github.com/imtatar999/triple-9-music-player/releases)** and download the newest `Triple9MusicPlayer-Setup.exe` from the top release.
 2. Run it. It installs for your user only - no administrator rights needed.
-3. Windows may say *"Windows protected your PC"* because the installer is not code-signed:
-   click **More info → Run anyway**.
+3. Windows may show *"Windows protected your PC"* simply because this is a small independent program that is not code-signed yet and Windows has not seen many downloads of it - it does not mean anything is wrong: click **More info → Run anyway**.
 
 Windows 10 or 11, 64-bit. No Python or anything else needed.
 
@@ -102,6 +101,8 @@ Album titles and artwork belong to their owners.
 dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspirowane jego albumami.
 **999** to odwrócone 666 - wszystko złe, przez co przechodzisz, zamień w coś dobrego.
 
-**Instalacja:** pobierz [`Triple9MusicPlayer-Setup.exe`](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe) (zawsze najnowsza wersja)
-i uruchom. Jeśli Windows pokaże ostrzeżenie: *Więcej informacji → Uruchom mimo to*.
+**Instalacja:** wejdź na [stronę wydań](https://github.com/imtatar999/triple-9-music-player/releases), pobierz najnowszy
+`Triple9MusicPlayer-Setup.exe` z najwyższego wydania i uruchom go. Windows może pokazać *„System Windows ochronił ten komputer”*,
+bo to mały niezależny program bez podpisu cyfrowego, którego Windows jeszcze nie zna - to nie znaczy, że coś jest nie tak:
+kliknij *Więcej informacji → Uruchom mimo to*.
 Nowe wersje program wykrywa sam i proponuje ich instalację.
