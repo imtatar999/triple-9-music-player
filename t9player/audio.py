@@ -42,6 +42,7 @@ STATE_PLAYING = "playing"
 STATE_PAUSED = "paused"
 
 _FADE_SECONDS = 0.012
+_XF_CEILING = 0.989         # crossfade limiter: highest peak let through (-0.1 dBFS)
 _STALL_SECONDS = 2.0        # a stream that has not asked for audio for this long is dead
 _AHEAD_SECONDS = 2.0
 
@@ -119,6 +120,8 @@ class Decoder:
         self._pending = []
         self._errors = 0
         self.eof = False
+        self.gain = 1.0             # volume normalization (float output only); glides to gain_target
+        self.gain_target = 1.0
         self.resampler = None
         self.target_rate = None
         self.t = 0.0
@@ -268,6 +271,15 @@ class Decoder:
                     continue
             t0 = self.t
             self.t += len(data) / self.rate
+            if (self.gain != 1.0 or self.gain_target != 1.0) and self.dtype == np.float32:
+                if self.gain_target != self.gain:
+                    # a gain that arrives while playing glides in over ~0.3 s instead of jumping
+                    step = 0.3 * self.rate
+                    end = self.gain + (self.gain_target - self.gain) * min(1.0, len(data) / step)
+                    data = data * np.linspace(self.gain, end, len(data), dtype=np.float32)[:, None]
+                    self.gain = end if abs(end - self.gain_target) > 1e-4 else self.gain_target
+                else:
+                    data = data * np.float32(self.gain)
             return data, t0
 
     def seek(self, seconds):
@@ -457,6 +469,8 @@ class AudioEngine:
         self.gapless = True
         self.crossfade = 0          # seconds; > 0 mixes the end of a song into the next one
         self._xf = None             # running crossfade state
+        self.normalize = False      # volume normalization on: every song decodes to float with its gain
+        self._gains = {}            # path -> linear gain (engine thread)
         # written by the audio callback
         self._cur_token = None      # token of the samples going out now
         self._cb_pos = 0.0          # track seconds of the first sample of the last block
@@ -489,6 +503,8 @@ class AudioEngine:
         self._default_id = None     # Windows' default output when we last looked
         self._default_check = 0.0
         self._recoveries = []       # times of recent reconnects (to stop endless retrying)
+        self._hung_closers = []     # threads still stuck closing an old stream inside the driver
+        self._no_exclusive = set()  # devices where Exclusive mode opened but never played
         self._underruns_logged = 0
         self._next_health_log = 0.0
         self.heartbeat = time.perf_counter()     # watched by diagnostics.Watchdog
@@ -507,6 +523,10 @@ class AudioEngine:
     def set_next(self, path, token):
         self._cmd.put(("next", path, token))
 
+    def set_gain(self, path, gain):
+        """Volume normalization gain for a song (before it loads, or while it plays - then it glides)."""
+        self._cmd.put(("gain", path, float(gain)))
+
     def seek(self, seconds):
         self._seek_target = max(0.0, float(seconds))
         self._seek_perf = time.perf_counter()
@@ -521,8 +541,8 @@ class AudioEngine:
     def stop(self):
         self._cmd.put(("stop",))
 
-    def reconfigure(self, device_name=None, exclusive=None, buffer_ms=None, crossfade=None):
-        self._cmd.put(("config", device_name, exclusive, buffer_ms, crossfade))
+    def reconfigure(self, device_name=None, exclusive=None, buffer_ms=None, crossfade=None, normalize=None):
+        self._cmd.put(("config", device_name, exclusive, buffer_ms, crossfade, normalize))
 
     def shutdown(self):
         self._alive = False
@@ -678,7 +698,7 @@ class AudioEngine:
     def _handle(self, cmd):
         kind = cmd[0]
         self._sync_token()
-        if kind != "next" and not (kind in ("seek", "load") and self._newer_queued(kind)):
+        if kind not in ("next", "gain") and not (kind in ("seek", "load") and self._newer_queued(kind)):
             _log.info("cmd %s %s (state %s, at %.1f s)", kind,
                       " ".join(os.path.basename(str(c)) if isinstance(c, str) else str(c) for c in cmd[1:3]),
                       self.state, self.position())
@@ -687,6 +707,22 @@ class AudioEngine:
             self._remember(token, path)
             if not self._newer_queued("load"):      # fast skipping: only the newest matters
                 self._load(path, token, start, paused)
+        elif kind == "gain":
+            _, path, gain = cmd
+            if not self.normalize:
+                return
+            self._gains[path] = gain
+            if len(self._gains) > 500:
+                self._gains = {path: gain}
+            # a song already open picks it up and glides to it
+            decs = [self._decoder]
+            if self._xf is not None:
+                decs.append(self._xf["next"])
+            if self._held_decoder is not None:
+                decs.append(self._held_decoder[0])
+            for dec in decs:
+                if dec is not None and dec.path == path and dec.dtype == np.float32:
+                    dec.gain_target = gain
         elif kind == "next":
             self._next = (cmd[1], cmd[2]) if cmd[1] else None
             if self._next:
@@ -711,14 +747,19 @@ class AudioEngine:
         elif kind == "stop":
             self._stop()
         elif kind == "config":
-            _, device_name, exclusive, buffer_ms, crossfade = cmd
+            _, device_name, exclusive, buffer_ms, crossfade, normalize = cmd
             changed = False
             if crossfade is not None and int(crossfade) != self.crossfade:
                 self.crossfade, changed = int(crossfade), True
+            if normalize is not None and bool(normalize) != self.normalize:
+                self.normalize, changed = bool(normalize), True
+                if not self.normalize:
+                    self._gains.clear()
             if device_name is not None and device_name != self.device_name:
                 self.device_name, changed = device_name, True
             if exclusive is not None and exclusive != self.exclusive:
                 self.exclusive, changed = exclusive, True
+                self._no_exclusive.clear()          # switched on again by hand: give it another chance
             if buffer_ms is not None and buffer_ms != self.buffer_ms:
                 self.buffer_ms, changed = buffer_ms, True
             if changed:
@@ -752,7 +793,7 @@ class AudioEngine:
         active = self.state != STATE_STOPPED
         paused = self.state == STATE_PAUSED
         self._close_stream()
-        refresh_devices()
+        self._refresh_devices()
         if active:
             self._reopen(pos, paused=paused)
         name = self.output_info.get("device") if active else None
@@ -796,8 +837,17 @@ class AudioEngine:
         pos = self.position()
         _log.warning("audio recovery #%d: %s (at %.1f s, device %r)", len(self._recoveries), reason, pos,
                      self.output_info.get("device"))
+        if self.output_info.get("exclusive") and self.output_info.get("device"):
+            # some devices (Bluetooth headphones above all) accept Exclusive mode and then never play:
+            # use shared mode on that device from now on
+            name = self.output_info["device"]
+            if name not in self._no_exclusive:
+                self._no_exclusive.add(name)
+                _log.warning("exclusive mode does not work on %r - using shared mode there", name)
+                self._post("warning", self.token, tr("Exclusive mode does not work on {device} - playing in "
+                                                     "shared mode there", device=name))
         self._close_stream()
-        refresh_devices()
+        self._refresh_devices()
         if len(self._recoveries) > 3:
             _log.error("audio device keeps failing - stopped retrying, waiting for the user")
             self._recoveries.clear()
@@ -813,8 +863,10 @@ class AudioEngine:
 
     def _open(self, path, start=0.0):
         dec = Decoder(path, start=start)
-        if self.crossfade > 0:
+        if self.crossfade > 0 or self.normalize:
             dec.force_float()
+        if self.normalize:
+            dec.gain = dec.gain_target = self._gains.get(path, 1.0)
         return dec
 
     def _xfade_due(self, dec):
@@ -871,6 +923,18 @@ class AudioEngine:
         part_b = b[:n]
         part_a = a[:n] if len(a) >= n else np.concatenate([a, np.zeros((n - len(a), 2), np.float32)])
         mixed = (part_a * gain_a + part_b * gain_b).astype(np.float32)
+        # two loud masters summed can go past full scale (up to +3 dB) and would clip into crackles:
+        # a limiter that only acts when that happens - drops at once, comes back slowly
+        peak = float(np.abs(mixed).max()) if n else 0.0
+        need = min(1.0, _XF_CEILING / peak) if peak > 0 else 1.0
+        prev = xf.get("lim", 1.0)
+        if need < prev:
+            mixed *= np.float32(need)
+            xf["lim"] = need
+        elif prev < 1.0:
+            end = min(need, prev + 0.02)
+            mixed *= np.linspace(prev, end, n, dtype=np.float32)[:, None]
+            xf["lim"] = end
         t0 = xf["b_t"]
         xf["a"], xf["b"] = a[n:], b[n:]
         xf["b_t"] = t0 + n / dec.rate
@@ -1112,8 +1176,40 @@ class AudioEngine:
             closer.join(1.5)
             if closer.is_alive():
                 _log.warning("closing the old audio stream is hanging in the driver - left it behind")
+                self._hung_closers.append(closer)
+
+    def _refresh_devices(self, wait=3.0):
+        """refresh_devices() restarts PortAudio - fatal while the driver still holds a stream we are
+        closing. Wait for such a stream first; if it never lets go, keep the old device list."""
+        deadline = time.perf_counter() + wait
+        while time.perf_counter() < deadline and any(c.is_alive() for c in self._hung_closers):
+            self.heartbeat = time.perf_counter()        # waiting on purpose, not frozen
+            for c in self._hung_closers:
+                c.join(0.25)
+        self._hung_closers = [c for c in self._hung_closers if c.is_alive()]
+        if self._hung_closers:
+            _log.warning("the driver still holds the old stream - not refreshing the device list")
+            return
+        refresh_devices()
 
     def _ensure_stream(self, dec):
+        if self._open_stream(dec):
+            return True
+        if sd is None:
+            return False
+        # Bluetooth headphones (and some USB DACs) re-appear under a new device number after a mode change,
+        # or are still held by a stream the driver has not let go of: give it a moment, look again, retry
+        held = any(c.is_alive() for c in self._hung_closers)
+        _log.info("opening the output failed - %s, then trying once more",
+                  "waiting for the driver to let go of the old stream" if held else "refreshing the device list")
+        if held:
+            # Bluetooth drivers can hold the device ~15 s after a failed Exclusive stream
+            self._post("info", self.token, tr("Waiting for the audio device..."))
+        time.sleep(0.7)
+        self._refresh_devices(wait=20.0)
+        return self._open_stream(dec)
+
+    def _open_stream(self, dec):
         if sd is None:
             self.output_info = {"error": "sounddevice / PortAudio is not available"}
             return False
@@ -1132,7 +1228,7 @@ class AudioEngine:
         is_wasapi = api is not None and dev_info is not None and dev_info["hostapi"] == api
         default_rate = int(dev_info["default_samplerate"]) if dev_info else 48000
         attempts = []
-        if is_wasapi and self.exclusive:
+        if is_wasapi and self.exclusive and not (dev_info and dev_info["name"] in self._no_exclusive):
             attempts.append(("WASAPI Exclusive", dec.rate, dict(exclusive=True, explicit_sample_format=True)))
             attempts.append(("WASAPI Exclusive", dec.rate, dict(exclusive=True)))
         if is_wasapi:
@@ -1171,6 +1267,7 @@ class AudioEngine:
                 "resampled": resampled,
                 "native": dec.native and not resampled and dec._int_scale is None,
                 "crossfade": self.crossfade,
+                "normalize": self.normalize,
                 "latency": float(stream.latency),
             }
             try:
@@ -1219,4 +1316,6 @@ def describe_output(info, volume=1.0, muted=False):
         parts.append(tr("resampled from {khz} kHz", khz="%g" % round(info.get("src_rate", 0) / 1000.0, 1)))
     if info.get("crossfade"):
         parts.append(tr("crossfade {n} s", n=info["crossfade"]))
+    if info.get("normalize"):
+        parts.append(tr("volume normalized"))
     return " · ".join(p for p in parts if p)

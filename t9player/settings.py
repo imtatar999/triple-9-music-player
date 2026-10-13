@@ -13,6 +13,7 @@ DEFAULTS = {
     "buffer_ms": 150,
     "gapless": True,
     "crossfade": 0,                 # seconds of overlap between songs, 0 = off (bit-perfect)
+    "normalize": "off",             # volume normalization: off | track | album
     "resume_on_start": True,
     "volume": 0.8,
     "muted": False,
@@ -47,9 +48,10 @@ DEFAULTS = {
     # Window
     "minimize_to_tray": False,
     "global_media_keys": True,
-    "online_updates": True,
-    "last_run_version": "",
-    "tour_done": False,             # the first-run tour was shown (or skipped)         # to say "Updated to X" once after an update         # look for a newer release on GitHub at start-up
+    "online_updates": True,         # look for a newer release on GitHub at start-up
+    "last_run_version": "",         # to say "Updated to X" once after an update
+    "tour_done": False,             # the first-run tour was shown (or skipped)
+    "column_widths": {},            # song list column -> width the user dragged it to
     "update_folder": "",            # folder that receives new T9MusicPlayer-Setup-X.Y.Z.exe files
     "mini_on_top": True,
     "window_geometry": "",
@@ -66,6 +68,7 @@ _VALIDATORS = {
     "library_folders": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
     "lyrics_order": lambda v: isinstance(v, list) and all(x in ("embedded", "lrc", "txt") for x in v),
     "crossfade": lambda v: isinstance(v, int) and 0 <= v <= 12,
+    "normalize": lambda v: v in ("off", "track", "album"),
     "language": lambda v: v in ("auto", "en", "pl"),
     "list_density": lambda v: v in ("list", "compact"),
     "unlocked_themes": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
@@ -74,6 +77,7 @@ _VALIDATORS = {
     "album_covers": lambda v: isinstance(v, dict),
     "artist_pictures": lambda v: isinstance(v, dict),
     "list_sort": lambda v: isinstance(v, dict),
+    "column_widths": lambda v: isinstance(v, dict) and all(isinstance(x, int) for x in v.values()),
 }
 
 

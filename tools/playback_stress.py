@@ -28,14 +28,14 @@ logging.basicConfig(level=logging.WARNING, format="     log %(name)s: %(message)
 app = QCoreApplication([])
 
 
-def tone(name, rate=44100, seconds=20.0, freq=440, fmt="s16", codec="flac", ext="flac"):
+def tone(name, rate=44100, seconds=20.0, freq=440, fmt="s16", codec="flac", ext="flac", amplitude=0.3):
     path = os.path.join(TMP, f"{name}.{ext}")
     with av.open(path, "w") as out:
         st = out.add_stream(codec, rate=rate)
         st.layout = "stereo"
         n = int(rate * seconds)
         t = np.arange(n) / rate
-        wave = (np.sin(2 * np.pi * freq * t) * 0.3)
+        wave = (np.sin(2 * np.pi * freq * t) * amplitude)
         if fmt == "s16":
             data = (wave * 32767).astype(np.int16)
         else:
@@ -53,6 +53,8 @@ def tone(name, rate=44100, seconds=20.0, freq=440, fmt="s16", codec="flac", ext=
 files = {
     "a": tone("a_44k", 44100, 20, 440),
     "b": tone("b_44k", 44100, 20, 550),
+    "long": tone("long_44k", 44100, 45, 495),
+    "quiet": tone("quiet_44k", 44100, 20, 440, amplitude=0.03),   # ~20 dB quieter: normalization        # another length: the counter must follow it
     "c": tone("c_48k", 48000, 20, 660),              # different rate: gapless must wait for the drain
     "d": tone("d_96k_24", 96000, 20, 330, fmt="s32"),
     "mp3": tone("e_mp3", 44100, 20, 770, fmt="s16", codec="mp3", ext="mp3") if "mp3" in av.codecs_available else None,
@@ -81,10 +83,12 @@ def pump(sec):
         time.sleep(0.005)
 
 
-def check(name, expect_state=None, moving=None, track=None, allow=()):
+def check(name, expect_state=None, moving=None, track=None, allow=(), length=None):
     """Settle, then verify the invariants."""
     pump(0.5)
     problems = []
+    if length is not None and abs(p.duration - length) > 1.0:
+        problems.append(f"song length shows {p.duration:.1f} s, should be {length:.1f} s")
     if p.state != p.engine.state and not (p.engine.state == audio.STATE_STOPPED and p.state == audio.STATE_STOPPED):
         problems.append(f"player says {p.state}, engine says {p.engine.state}")
     if expect_state and p.engine.state != expect_state:
@@ -196,9 +200,84 @@ try:
     pump(1.0)
     p.seek(1.0)
     check("seek during a crossfade", audio.STATE_PLAYING, moving=True)
+    # a long crossfade: it is heard before the decoder has finished mixing it
+    p.engine.reconfigure(crossfade=10)
+    p.play_tracks([T["a"], T["long"]], 0)
+    pump(0.5)
+    p.seek(T["a"].duration - 11.0)
+    pump(4.0)                   # the fade began ~1 s ago and lasts 10 s
+    check("crossfade into a longer song: length during the fade", track="long", length=T["long"].duration)
+    pump(7.0)
+    check("crossfade into a longer song: length after the fade", audio.STATE_PLAYING, moving=True,
+          track="long", length=T["long"].duration)
+    p.seek(30.0)
+    check("seek past the old song's length (the reported bug)", audio.STATE_PLAYING, moving=True)
+    if p.position() < 29.5:
+        results.append(("seek lands on 30 s", [f"position {p.position():.2f}"]))
+        print(f"  FAIL seek lands on 30 s  <- {p.position():.2f}")
     settings.set("crossfade", 0)
     p.engine.reconfigure(crossfade=0)
     check("crossfade switched off while playing", audio.STATE_PLAYING, moving=True)
+    p.play_tracks([T["a"], T["long"]], 0)
+    pump(0.5)
+    p.seek(T["a"].duration - 1.5)
+    pump(2.5)
+    check("gapless into a longer song: length", audio.STATE_PLAYING, moving=True, track="long",
+          length=T["long"].duration)
+
+    scenario("volume normalization")
+    from t9player import loudness
+
+    def dec_gain():
+        dec = p.engine._decoder
+        return dec.gain_target if dec is not None else None
+
+    settings.set("normalize", "track")
+    p.play_tracks([T["a"], T["quiet"], T["a"]], 0)
+    p.apply_output_settings()
+    pump(2.5)                                   # measured in the background, then glides in
+    want = loudness.gain_for(*loudness.measure(T["a"].path))
+    g = dec_gain()
+    ok = g is not None and abs(g - want) < 0.01
+    results.append(("normalization turned on while playing", [] if ok else [f"gain {g}, want {want:.3f}"]))
+    print(("  OK   " if ok else "  FAIL ") + f"normalization turned on while playing (gain {g}, want {want:.3f})")
+    check("still playing after switching it on", audio.STATE_PLAYING, moving=True, track="a")
+    p.seek(T["a"].duration - 1.5)
+    pump(2.5)
+    want_q = loudness.gain_for(*loudness.measure(T["quiet"].path))
+    g = dec_gain()
+    ok = g is not None and abs(g - want_q) < 0.01
+    results.append(("gapless into a quieter song gets its own gain", [] if ok else [f"gain {g}, want {want_q:.3f}"]))
+    print(("  OK   " if ok else "  FAIL ") + f"gapless into a quieter song gets its own gain ({g}, want {want_q:.3f})")
+    check("gapless with normalization", audio.STATE_PLAYING, moving=True, track="quiet")
+    settings.set("crossfade", 3)
+    p.apply_output_settings()
+    p.play_tracks([T["quiet"], T["a"]], 0)
+    pump(0.5)
+    p.seek(T["quiet"].duration - 4.0)
+    pump(6.0)
+    check("crossfade with normalization", audio.STATE_PLAYING, moving=True, track="a")
+    settings.set("crossfade", 0)
+    settings.set("normalize", "off")
+    p.apply_output_settings()
+    pump(0.5)
+    check("normalization turned off while playing", audio.STATE_PLAYING, moving=True)
+    ok = dec_gain() in (None, 1.0)
+    results.append(("gain back to 1 when off", [] if ok else [f"gain {dec_gain()}"]))
+    print(("  OK   " if ok else "  FAIL ") + "gain back to 1 when off")
+
+    scenario("queue panel follows previous / next")
+    seen = []
+    p.queue_changed.connect(lambda: seen.append(p.current.path if p.current else None))
+    p.play_tracks([T["a"], T["b"], T["a"]], 1)
+    pump(0.5)
+    for action, want in ((p.previous, "a"), (p.next, "b")):
+        seen.clear()
+        action()
+        pump(0.3)
+        ok = bool(seen) and seen[-1] == T[want].path
+        results.append((f"queue refreshed after {action.__name__}", [] if ok else ["no queue_changed for the new song"]))
+        print(("  OK   " if ok else "  FAIL ") + f"queue refreshed after {action.__name__}")
 
     scenario("skipping")
     p.play_tracks([T["a"], T["b"], T["c"], T["a"], T["b"]], 0)
@@ -268,8 +347,17 @@ try:
     if p.position() < pos:
         results.append(("buffer change keeps the position", [f"{pos:.1f} -> {p.position():.1f}"]))
     p.engine.reconfigure(exclusive=True)
+    # Bluetooth headphones may take Exclusive mode and never play: the engine must fall back to
+    # shared mode by itself (after the driver lets go of the device, up to ~20 s)
+    pump(1.0)
+    end = time.perf_counter() + 25
+    while time.perf_counter() < end:
+        a = p.position()
+        pump(0.5)
+        if p.position() - a > 0.3:
+            break
     check("WASAPI Exclusive on while playing", audio.STATE_PLAYING, moving=True,
-          allow=("Exclusive mode is not available",))
+          allow=("Exclusive mode is not available", "Exclusive mode does not work", "reconnecting"))
     p.engine.reconfigure(exclusive=False)
     check("Exclusive off again", audio.STATE_PLAYING, moving=True)
     for v in (0.0, 1.0, 0.3, 0.8):

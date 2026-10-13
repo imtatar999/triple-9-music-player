@@ -1,6 +1,8 @@
 """Track list: fast model (own sorting/filtering in Python lists) + painted delegate."""
 
-from PySide6.QtCore import (QAbstractTableModel, QByteArray, QMimeData, QModelIndex, QPoint, QRectF,
+import weakref
+
+from PySide6.QtCore import (QAbstractTableModel, QByteArray, QEvent, QMimeData, QModelIndex, QPoint, QRectF,
                             QSize, Qt, QTimer, Signal)
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -18,6 +20,23 @@ ROW_HEIGHT = 54
 COMPACT_HEIGHT = 34
 SORT_ARTIST, SORT_ADDED = 100, 101       # sort keys without their own column
 MIME_ROWS = "application/x-t9-rows"
+RESIZABLE = (COL_TITLE, COL_ALBUM, COL_YEAR, COL_PLAYS, COL_FORMAT)
+MIN_WIDTHS = {COL_TITLE: 160, COL_ALBUM: 80, COL_YEAR: 44, COL_PLAYS: 50, COL_FORMAT: 70}
+
+# widths the user dragged the columns to, shared by every song list ("column" -> px)
+COLUMN_WIDTHS = {}
+_save_widths = None
+_tables = weakref.WeakSet()
+
+
+def set_column_widths(widths, save=None):
+    """Load the saved widths; `save(dict)` is called (a moment later) after the user drags a column."""
+    global _save_widths
+    COLUMN_WIDTHS.clear()
+    COLUMN_WIDTHS.update({str(k): int(v) for k, v in (widths or {}).items()})
+    _save_widths = save
+    for table in list(_tables):
+        table._fit_columns()
 
 
 def _natural_key(text):
@@ -28,7 +47,7 @@ SORT_KEYS = {
     COL_NUM: None,   # list order
     COL_TITLE: lambda t: (_natural_key(t.title), _natural_key(t.display_artist)),
     COL_ALBUM: lambda t: (_natural_key(t.album), t.disc, t.track, _natural_key(t.title)),
-    COL_YEAR: lambda t: (t.year or "9999", _natural_key(t.album), t.disc, t.track),
+    COL_YEAR: lambda t: (t.release_date or "9999", _natural_key(t.album), t.disc, t.track),
     COL_PLAYS: lambda t: (t.plays, t.last_played),
     COL_FORMAT: lambda t: (-(t.bits or 0), -(t.samplerate or 0), t.codec, -(t.bitrate or 0)),
     COL_TIME: lambda t: t.duration,
@@ -177,6 +196,8 @@ class TrackModel(QAbstractTableModel):
                 return _format_tooltip(t)
             if col == COL_ALBUM and t.album:
                 return t.album
+            if col == COL_YEAR and t.release_date != t.year:
+                return t.release_date
             if col == COL_PLAYS:
                 return n_times(t.plays)
         elif role == Qt.UserRole:
@@ -372,7 +393,10 @@ class TrackDelegate(QStyledItemDelegate):
             align = Qt.AlignRight | Qt.AlignVCenter if col == COL_TIME else Qt.AlignLeft | Qt.AlignVCenter
             rect = QRectF(r).adjusted(6, 0, -10 if col == COL_TIME else -6, 0)
             fm = QFontMetrics(self._cell_font)
-            p.drawText(rect, align, fm.elidedText(index.data() or "", Qt.ElideRight, int(rect.width())))
+            text = index.data() or ""
+            if col == COL_YEAR and fm.horizontalAdvance(t.release_date) <= rect.width():
+                text = t.release_date        # widen the column to see the whole date
+            p.drawText(rect, align, fm.elidedText(text, Qt.ElideRight, int(rect.width())))
         p.restore()
 
 
@@ -414,13 +438,15 @@ class TrackTable(QTableView):
         hh.setHighlightSections(False)
         hh.setSectionsMovable(False)
         hh.setStretchLastSection(False)
-        hh.setSectionResizeMode(COL_NUM, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_TITLE, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_ALBUM, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_YEAR, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_PLAYS, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_FORMAT, QHeaderView.Fixed)
-        hh.setSectionResizeMode(COL_TIME, QHeaderView.Fixed)
+        hh.setMinimumSectionSize(36)
+        for col in range(len(COLUMNS)):
+            # drag the edges like in Spotify; the title takes whatever is left
+            hh.setSectionResizeMode(col, QHeaderView.Interactive if col in RESIZABLE else QHeaderView.Fixed)
+        self._fitting = False
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(500)
+        self._save_timer.timeout.connect(lambda: _save_widths and _save_widths(dict(COLUMN_WIDTHS)))
         hh.resizeSection(COL_NUM, 48)
         hh.resizeSection(COL_ALBUM, 260)
         hh.resizeSection(COL_YEAR, 64)
@@ -430,6 +456,13 @@ class TrackTable(QTableView):
         hh.resizeSection(COL_TIME, 70)
         hh.setSortIndicatorShown(True)
         hh.setSortIndicator(COL_NUM, Qt.AscendingOrder)
+        hh.sectionResized.connect(self._on_section_resized)
+        hh.sectionHandleDoubleClicked.connect(self._reset_column)
+        hh.setContextMenuPolicy(Qt.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._header_menu)
+        self._drag = None               # mouse x where a column edge drag started, and where it is now
+        hh.viewport().installEventFilter(self)
+        _tables.add(self)
         self.doubleClicked.connect(self._on_double_click)
         if embedded:
             self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -458,22 +491,122 @@ class TrackTable(QTableView):
         super().wheelEvent(event)
 
     def _fit_columns(self):
-        """Title gets ~60 % of the flexible width, album the rest; small columns stay fixed."""
+        """Small columns at their (dragged or default) width; album ~40 % of the rest unless dragged;
+        the title fills what is left."""
         hh = self.horizontalHeader()
         width = self.viewport().width()
-        fmt = 150 if width > 760 else 110
-        hh.resizeSection(COL_FORMAT, fmt)
-        hh.resizeSection(COL_YEAR, 64 if width > 640 else 0)
-        hh.resizeSection(COL_PLAYS, PLAYS_WIDTH)
-        fixed = sum(hh.sectionSize(c) for c in (COL_NUM, COL_YEAR, COL_PLAYS, COL_FORMAT, COL_TIME)
-                    if not hh.isSectionHidden(c))
-        flexible = max(200, width - fixed)
-        if hh.isSectionHidden(COL_ALBUM):
-            hh.resizeSection(COL_TITLE, flexible)
+
+        def wanted(col, default):
+            return COLUMN_WIDTHS.get(str(col), default)
+
+        self._fitting = True
+        try:
+            small = {COL_FORMAT: wanted(COL_FORMAT, 150 if width > 760 else 110),
+                     COL_YEAR: wanted(COL_YEAR, 64) if width > 640 else 0,
+                     COL_PLAYS: wanted(COL_PLAYS, PLAYS_WIDTH)}
+            # never squeeze the title and album below their minimum: the small columns give way first
+            others = sum(hh.sectionSize(c) for c in (COL_NUM, COL_TIME) if not hh.isSectionHidden(c))
+            need = MIN_WIDTHS[COL_TITLE] + (0 if hh.isSectionHidden(COL_ALBUM) else MIN_WIDTHS[COL_ALBUM])
+            over = others + need + sum(v for c, v in small.items() if not hh.isSectionHidden(c)) - width
+            for c in (COL_FORMAT, COL_YEAR, COL_PLAYS):
+                if over <= 0:
+                    break
+                if hh.isSectionHidden(c) or not small[c]:
+                    continue
+                cut = min(over, max(0, small[c] - MIN_WIDTHS[c]))
+                small[c] -= cut
+                over -= cut
+            for c, v in small.items():
+                hh.resizeSection(c, v)
+            fixed = sum(hh.sectionSize(c) for c in (COL_NUM, COL_YEAR, COL_PLAYS, COL_FORMAT, COL_TIME)
+                        if not hh.isSectionHidden(c))
+            flexible = max(200, width - fixed)
+            if hh.isSectionHidden(COL_ALBUM):
+                hh.resizeSection(COL_TITLE, flexible)
+                return
+            album = wanted(COL_ALBUM, flexible - int(flexible * 0.6))
+            album = max(80, min(album, flexible - 160))
+            hh.resizeSection(COL_ALBUM, album)
+            hh.resizeSection(COL_TITLE, flexible - album)
+        finally:
+            self._fitting = False
+
+    def _on_section_resized(self, col, old, new):
+        """Dragging the edge between two columns moves only that edge, like in Spotify: the column on
+        one side grows, the one on the other side shrinks. Once a column is at its smallest it pushes
+        the next one along."""
+        if self._fitting or old <= 0 or new <= 0 or col not in RESIZABLE:
             return
-        title = int(flexible * 0.6)
-        hh.resizeSection(COL_TITLE, title)
-        hh.resizeSection(COL_ALBUM, flexible - title)
+        hh = self.horizontalHeader()
+        drag = self._drag
+        if drag is not None and "cur" in drag and drag.get("col", col) == col:
+            # measure from where the mouse went down: Qt stops a column at its minimum, the mouse goes on
+            if "widths" not in drag:
+                cols = [c for c in RESIZABLE if c == col or (not self.isColumnHidden(c) and hh.sectionSize(c) > 0)]
+                drag["widths"] = {c: hh.sectionSize(c) for c in cols}
+                drag["widths"][col] = old
+                drag["col"] = col
+            widths = dict(drag["widths"])
+            delta = int(drag["cur"] - drag["x"])
+        else:
+            cols = [c for c in RESIZABLE if c == col or (not self.isColumnHidden(c) and hh.sectionSize(c) > 0)]
+            widths = {c: hh.sectionSize(c) for c in cols}
+            widths[col] = old
+            delta = new - old
+        cols = list(widths)
+        left = [c for c in cols if c <= col][::-1]      # nearest first
+        right = [c for c in cols if c > col]
+        if right:
+            moved = 0
+            if delta > 0:       # edge goes right: the columns on the right give way
+                for c in right:
+                    give = max(0, min(widths[c] - MIN_WIDTHS[c], delta - moved))
+                    widths[c] -= give
+                    moved += give
+                widths[col] += moved
+            else:               # edge goes left: the columns on the left give way
+                for c in left:
+                    take = max(0, min(widths[c] - MIN_WIDTHS[c], -delta - moved))
+                    widths[c] -= take
+                    moved += take
+                widths[right[0]] += moved
+            for c in cols:
+                if c != COL_TITLE:          # the title always takes what is left
+                    COLUMN_WIDTHS[str(c)] = int(widths[c])
+        for table in list(_tables):
+            table._fit_columns()
+        self._save_timer.start()
+
+    def eventFilter(self, obj, event):
+        if obj is self.horizontalHeader().viewport():
+            kind = event.type()
+            if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._drag = {"x": event.position().x()}
+            elif kind == QEvent.MouseMove and self._drag is not None:
+                self._drag["cur"] = event.position().x()
+            elif kind == QEvent.MouseButtonRelease:
+                self._drag = None
+        return super().eventFilter(obj, event)
+
+    def _header_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        act = menu.addAction(tr("Reset column widths"), self._reset_all_columns)
+        act.setEnabled(bool(COLUMN_WIDTHS))
+        menu.exec(self.horizontalHeader().mapToGlobal(pos))
+
+    def _reset_all_columns(self):
+        COLUMN_WIDTHS.clear()
+        for table in list(_tables):
+            table._fit_columns()
+        self._save_timer.start()
+
+    def _reset_column(self, col):
+        """Double-click a column edge: back to its normal width."""
+        if COLUMN_WIDTHS.pop(str(col if col != COL_TITLE else COL_ALBUM), None) is not None:
+            for table in list(_tables):
+                table._fit_columns()
+            self._save_timer.start()
 
     def set_compact(self, compact):
         self.compact = bool(compact)

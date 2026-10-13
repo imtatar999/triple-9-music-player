@@ -58,6 +58,19 @@ def _year(value):
     return m.group(1) if m else ""
 
 
+def _date(value):
+    """'2018-07-02T00:00:00' -> '2018-07-02', '2018-07' stays, a bare year gives ''."""
+    m = re.search(r"(\d{4})[-./](\d{1,2})(?:[-./](\d{1,2}))?", _text(value))
+    if not m:
+        return ""
+    year, month, day = m.group(1), int(m.group(2)), int(m.group(3) or 0)
+    if not 1 <= month <= 12:
+        return ""
+    if 1 <= day <= 31:
+        return f"{year}-{month:02d}-{day:02d}"
+    return f"{year}-{month:02d}"
+
+
 _GENERIC_KEYS = {
     "title": ("title", "©nam", "tit2"),
     "artist": ("artist", "author", "©art", "tpe1"),
@@ -96,7 +109,7 @@ def read_tags(path):
     """Return a dict describing the track. Always returns something usable."""
     info = {
         "path": path, "title": "", "artist": "", "album": "", "albumartist": "",
-        "year": "", "track": 0, "disc": 0, "genre": "", "duration": 0.0,
+        "year": "", "date": "", "track": 0, "disc": 0, "genre": "", "duration": 0.0,
         "samplerate": 0, "bits": 0, "channels": 0, "bitrate": 0, "codec": "",
     }
     try:
@@ -180,6 +193,7 @@ def _read_mutagen(path, info):
                     info[field_name] = _number(raw)
                 elif field_name == "date":
                     info["year"] = _year(raw)
+                    info["date"] = info["date"] or _date(raw)
                 else:
                     info[field_name] = _text(raw)
                 if info.get(field_name if field_name != "date" else "year"):
@@ -211,6 +225,7 @@ def _read_av(path, info):
                     for key in keys:
                         if meta.get(key):
                             info["year"] = _year(meta[key])
+                            info["date"] = info["date"] or _date(meta[key])
                             break
                 continue
             if info.get(field_name):

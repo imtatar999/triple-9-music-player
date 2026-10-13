@@ -367,6 +367,20 @@ class SettingsDialog(QDialog):
             "so it is not bit-perfect - set it to Off for pure lossless playback.")))
         self._on_crossfade_moved(s["crossfade"])
 
+        self.normalize = QComboBox()
+        for key, label in (("off", "Off"), ("track", "Same loudness for every song"),
+                           ("album", "Same loudness for every album")):
+            self.normalize.addItem(tr(label), key)
+        self.normalize.setCurrentIndex(max(0, self.normalize.findData(s["normalize"])))
+        self.normalize.setToolTip(tr("Quiet songs a bit louder, loud ones quieter - no more reaching for the volume"))
+        self.normalize.currentIndexChanged.connect(self._audio_save)
+        form.addRow(tr("Volume normalization"), self.normalize)
+        form.addRow("", _hint(tr(
+            "Every song plays at the same loudness, like in Spotify. Songs are measured in the background "
+            "(about half a second each, only once). It never turns a song up into distortion. "
+            "\"Every album\" keeps the quiet and loud songs of an album as the artist meant them. "
+            "While it is on the sound is not bit-perfect.")))
+
         self.resume = QCheckBox(tr("Resume where I left off when the player starts"))
         self.resume.setToolTip(tr("Restores the queue, song and position from the last session"))
         self.resume.setChecked(s["resume_on_start"])
@@ -384,6 +398,7 @@ class SettingsDialog(QDialog):
             "buffer_ms": int(self.buffer.currentData() or 150),
             "gapless": self.gapless.isChecked(),
             "crossfade": int(self.crossfade.value()),
+            "normalize": self.normalize.currentData() or "off",
         })
         self.audio_changed.emit()
 

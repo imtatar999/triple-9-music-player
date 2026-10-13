@@ -12,6 +12,7 @@ import time
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import audio
+from .normalizer import Normalizer
 from .i18n import tr
 
 _log = logging.getLogger("t9player.player")
@@ -41,6 +42,8 @@ class Player(QObject):
         self.engine.buffer_ms = settings["buffer_ms"]
         self.engine.gapless = settings["gapless"]
         self.engine.crossfade = settings["crossfade"]
+        self.engine.normalize = settings["normalize"] != "off"
+        self.normalizer = Normalizer(library)
         self.queue = []                     # list[Track]
         self.index = -1
         self.order = []                     # play order (indices into queue)
@@ -53,6 +56,7 @@ class Player(QObject):
         self._tokens = itertools.count(1)
         self._token_map = {}                # token -> queue index
         self._token = None                  # token we expect to hear
+        self._pending_durations = {}        # token of a gapless/crossfaded next song -> its length
         self._failures = 0
         self._counted = False
         self._stop_after_current = False
@@ -159,8 +163,10 @@ class Player(QObject):
         self._counted = False
         _log.info("play %r - %r (%s, queue %d/%d)%s", track.display_artist, track.title, track.format_label,
                   qindex + 1, len(self.queue), f" from {position:.0f} s" if position else "")
+        self._send_gain(track)
         self.engine.load(track.path, token, position, paused)
         self._send_next()
+        self.queue_changed.emit()        # "Now playing" / "Next up" moved (previous, next, jump ...)
 
     def _set_current(self, track):
         self.current = track
@@ -203,7 +209,40 @@ class Player(QObject):
             return
         token = next(self._tokens)
         self._token_map[token] = nxt
+        self._send_gain(self.queue[nxt])
         self.engine.set_next(self.queue[nxt].path, token)
+
+    # ------------------------------------------------------------------ volume normalization
+    def _send_gain(self, track):
+        """Tell the engine how loud to play the song (before it opens it)."""
+        if self.normalizer.mode == "off" or track is None:
+            return
+        gain = self.normalizer.gain(track)
+        if gain is None:
+            # not measured yet: measure it right away; meanwhile the library's usual level is a good guess
+            self.normalizer.prioritize([track.path])
+            gain = self.normalizer.typical_gain()
+        self.engine.set_gain(track.path, gain)
+
+    def _normalizer_results(self):
+        done = self.normalizer.finished()
+        if not done or self.normalizer.mode == "off":
+            return
+        upcoming = self._peek_next()
+        for t in (self.current, self.queue[upcoming] if upcoming is not None else None):
+            if t is not None and (t.path in done or self.normalizer.mode == "album"):
+                self._send_gain(t)
+
+    def set_normalize(self, mode):
+        self.normalizer.set_mode(mode, self.library.library_tracks() if mode != "off" else ())
+        self.engine.reconfigure(normalize=mode != "off")
+        if mode != "off":
+            upcoming = self._peek_next()
+            paths = [t.path for t in (self.current, self.queue[upcoming] if upcoming is not None else None) if t]
+            self.normalizer.prioritize(paths)
+            self._send_gain(self.current)
+            if upcoming is not None:
+                self._send_gain(self.queue[upcoming])
 
     def _peek_next(self):
         if self.index not in self.order:
@@ -348,6 +387,8 @@ class Player(QObject):
         s = self.settings
         self.engine.gapless = s["gapless"]
         self.engine.reconfigure(s["output_device"], s["exclusive_mode"], s["buffer_ms"], s["crossfade"])
+        if s["normalize"] != self.normalizer.mode:
+            self.set_normalize(s["normalize"])
 
     # ------------------------------------------------------------------ engine events
     def _poll(self):
@@ -360,6 +401,7 @@ class Player(QObject):
                 self._on_event(kind, token, payload)
             except Exception as exc:     # keep the timer alive no matter what
                 self.message.emit("error", tr("Internal error: {error}", error=exc))
+        self._normalizer_results()
         if self.sleep_deadline and time.perf_counter() >= self.sleep_deadline:
             self.sleep_deadline = 0.0
             self.pause()
@@ -378,7 +420,15 @@ class Player(QObject):
             self.state_changed.emit(payload)
         elif kind == "loaded":
             if payload.get("gapless"):
-                return               # becomes current only when it is heard ("started")
+                # becomes current only when it is heard ("started"); with a crossfade it is heard
+                # before this message arrives, so its length may only be known now
+                dur = payload.get("duration") or 0.0
+                if dur > 0:
+                    self._pending_durations[token] = dur
+                    if token == self._token and abs(dur - self.duration) > 1.0:
+                        self.duration = dur
+                        self.duration_changed.emit(dur)
+                return
             if token != self._token:
                 return
             self._failures = 0
@@ -403,8 +453,10 @@ class Player(QObject):
             self._set_current(self.queue[qindex])
             self.output_info = self._with_real_bits(dict(self.engine.output_info))
             self.output_changed.emit(self.output_info)
-            dur = self.engine.duration
-            if dur > 0:
+            # not engine.duration: during a crossfade that is still the length of the song fading out
+            dur = self._pending_durations.pop(token, 0.0)
+            self._pending_durations.clear()
+            if dur > 0 and abs(dur - self.duration) > 1.0:
                 self.duration = dur
                 self.duration_changed.emit(dur)
             self.queue_changed.emit()
@@ -456,4 +508,5 @@ class Player(QObject):
 
     def shutdown(self):
         self._timer.stop()
+        self.normalizer.stop()
         self.engine.shutdown()

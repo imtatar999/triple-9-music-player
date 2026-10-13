@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     bitrate INTEGER, codec TEXT,
     added REAL, plays INTEGER DEFAULT 0, last_played REAL DEFAULT 0,
     favorite INTEGER DEFAULT 0, lyrics_offset REAL DEFAULT 0,
-    in_library INTEGER DEFAULT 1
+    in_library INTEGER DEFAULT 1, date TEXT
 );
 CREATE TABLE IF NOT EXISTS playlists (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, created REAL
@@ -28,11 +28,14 @@ CREATE TABLE IF NOT EXISTS playlist_items (
     playlist_id INTEGER NOT NULL, pos INTEGER NOT NULL, path TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_items ON playlist_items(playlist_id, pos);
+CREATE TABLE IF NOT EXISTS loudness (
+    path TEXT PRIMARY KEY, mtime REAL, size INTEGER, lufs REAL, peak REAL
+);
 """
 
 FIELDS = ("path", "mtime", "size", "title", "artist", "album", "albumartist", "year",
           "track", "disc", "genre", "duration", "samplerate", "bits", "channels",
-          "bitrate", "codec")
+          "bitrate", "codec", "date")
 
 
 class Track:
@@ -48,6 +51,7 @@ class Track:
         self.album = self.album or ""
         self.albumartist = self.albumartist or ""
         self.year = self.year or ""
+        self.date = self.date or ""       # full release date when the tags have one (2018-07-02)
         self.genre = self.genre or ""
         self.codec = self.codec or ""
         for name in ("track", "disc", "samplerate", "bits", "channels", "bitrate", "plays", "favorite", "size"):
@@ -62,8 +66,13 @@ class Track:
     def search_text(self):
         if self._search is None:
             self._search = " ".join((self.title, self.artist, self.album, self.albumartist,
-                                     self.genre, self.year)).casefold()
+                                     self.genre, self.release_date)).casefold()
         return self._search
+
+    @property
+    def release_date(self):
+        """The full date if known, otherwise the year."""
+        return self.date if self.date.startswith(self.year) else self.year
 
     @property
     def format_label(self):
@@ -97,6 +106,17 @@ def connect(path):
     return conn
 
 
+def _migrate(conn):
+    """Bring an older database up to date. Returns True when every file's tags must be read again."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)")}
+    if "date" in cols:
+        return False
+    conn.execute("ALTER TABLE tracks ADD COLUMN date TEXT")
+    conn.execute("UPDATE tracks SET mtime=0")      # the next scan re-reads the tags (plays etc. stay)
+    conn.commit()
+    return True
+
+
 class Library:
     """Thread-safe facade over the database plus the in-memory track list."""
 
@@ -112,6 +132,7 @@ class Library:
             except OSError:
                 pass
             self.conn = connect(db_path)
+        self.needs_rescan = _migrate(self.conn)
         self.tracks = {}          # path -> Track
         self._scan_thread = None
         self._scan_cancel = threading.Event()
@@ -243,8 +264,11 @@ class Library:
                 t = known.get(path)
                 if t is None or abs(t.mtime - mtime) > 1e-3 or t.size != size or not t.in_library:
                     todo.append(path)
+            # a folder that is not there at all (unplugged drive, network share offline) says nothing
+            # about its songs: keep them instead of emptying the library
+            present = [f for f in folders if f and os.path.isdir(f)]
             gone = [p for p, t in known.items() if t.in_library and p not in found
-                    and _under_any(p, folders)]
+                    and _under_any(p, present)]
             total = len(todo)
             if on_progress:
                 on_progress(0, total, [])
@@ -365,6 +389,25 @@ class Library:
     def add_to_playlist(self, pid, paths):
         current = self.playlist_paths(pid)
         self.set_playlist_paths(pid, current + [p for p in paths])
+
+    # ------------------------------------------------------------------ volume normalization
+    def loudness_all(self):
+        """path -> (mtime, size, lufs, peak) for every measured song."""
+        try:
+            with self._lock:
+                rows = self.conn.execute("SELECT path, mtime, size, lufs, peak FROM loudness").fetchall()
+        except sqlite3.DatabaseError:
+            return {}
+        return {r["path"]: (r["mtime"], r["size"], r["lufs"], r["peak"]) for r in rows}
+
+    def set_loudness(self, path, mtime, size, lufs, peak):
+        try:
+            with self._lock:
+                self.conn.execute("INSERT OR REPLACE INTO loudness (path, mtime, size, lufs, peak) VALUES (?,?,?,?,?)",
+                                  (path, mtime, size, lufs, peak))
+                self.conn.commit()
+        except sqlite3.DatabaseError:
+            pass
 
     def close(self):
         self.cancel_scan()

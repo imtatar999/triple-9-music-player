@@ -2,6 +2,7 @@
 
 import os
 import random
+from html import escape as _html
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -14,14 +15,15 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QDialo
                                QPushButton, QSystemTrayIcon, QTableView,
                                QVBoxLayout, QWidget)
 
-from .. import APP_NAME, APP_VERSION, audio, icons, library as libmod, meta, paths, theme, updater, winutil
+from .. import (APP_NAME, APP_VERSION, audio, icons, library as libmod, meta, paths, playlist_io, theme, updater,
+               winutil)
 from ..collection import Collection
 from ..i18n import songs as n_songs, tr
 from ..settings import read_json, write_json_atomic
 from .collection_view import AlbumPage, ArtistPage, CollectionPage
 from .home_page import HomePage
 from .decor import BackdropStack, DecorBackground, MatrixRain
-from .library_view import COL_NUM, COL_TITLE, LibraryPage
+from .library_view import COL_NUM, COL_TITLE, LibraryPage, set_column_widths
 from .lyrics_page import LyricsPage
 from .mini_player import MiniPlayer
 from .player_bar import PlayerBar
@@ -193,7 +195,7 @@ class MainWindow(QMainWindow):
         header2.setObjectName("NavHeader")
         ph.addWidget(header2)
         ph.addStretch(1)
-        self.add_playlist_btn = IconButton("add", tr("New playlist or import an .m3u file"), 26, 16)
+        self.add_playlist_btn = IconButton("add", tr("New playlist, import or export"), 26, 16)
         ph.addWidget(self.add_playlist_btn, 0, Qt.AlignBottom)
         lay.addLayout(ph)
         self.playlists = QListWidget()
@@ -318,7 +320,7 @@ class MainWindow(QMainWindow):
         hp.track_menu.connect(self._track_menu)
         hp.show_view.connect(self._nav_to)
         self.artist_page.more_menu.connect(self._artist_menu)
-        self.bar.lyrics_clicked.connect(self.toggle_lyrics)
+        self.bar.lyrics_clicked.connect(self._lyrics_button)
         self.bar.cover_clicked.connect(self.toggle_now_playing)
         self.bar.queue_clicked.connect(self.toggle_queue)
         self.bar.mini_clicked.connect(self.show_mini)
@@ -353,14 +355,18 @@ class MainWindow(QMainWindow):
     # ================================================================== startup
     def start(self, files=None):
         """Called once the window is visible: load library, restore session."""
+        set_column_widths(self.settings["column_widths"], lambda w: self.settings.set("column_widths", w))
         self.library.load()
+        if self.settings["normalize"] != "off":
+            self.player.set_normalize(self.settings["normalize"])
         self.reload_playlists()
         self._nav_to("home")
         if files:
             self.play_files(files)
         elif self.settings["resume_on_start"] or os.environ.get("T9_RESUME_PLAYING"):
             self.restore_session()
-        if self.settings["rescan_on_start"] and self.settings["library_folders"]:
+        if ((self.settings["rescan_on_start"] or self.library.needs_rescan)
+                and self.settings["library_folders"]):
             QTimer.singleShot(1500, self.rescan)
         if (getattr(self, "fresh_install", False) or os.environ.get("T9_SHOW_TOUR")) and not self.settings["tour_done"]:
             QTimer.singleShot(900, self.show_tour)
@@ -1042,7 +1048,7 @@ class MainWindow(QMainWindow):
         row("Artist", track.display_artist)
         row("Album", track.album)
         row("Album artist", track.albumartist)
-        row("Year", track.year)
+        row("Release date" if track.release_date != track.year else "Year", track.release_date)
         row("Genre", track.genre)
         row("Track / disc", f"{track.track or '-'} / {track.disc or '-'}")
         row("Duration", fmt_time(track.duration))
@@ -1073,7 +1079,9 @@ class MainWindow(QMainWindow):
     def _playlist_add_menu(self):
         menu = QMenu(self)
         menu.addAction(icons.icon("add", theme.TEXT, 16), tr("New playlist..."), lambda: self._new_playlist([]))
-        menu.addAction(icons.icon("folder", theme.TEXT, 16), tr("Import .m3u playlist..."), self._import_m3u)
+        menu.addAction(icons.icon("folder", theme.TEXT, 16), tr("Import playlists..."), self._import_playlists)
+        export_all = menu.addAction(tr("Export all playlists..."), self._export_all_playlists)
+        export_all.setEnabled(bool(self.library.playlists()))
         menu.exec(self.add_playlist_btn.mapToGlobal(self.add_playlist_btn.rect().bottomLeft()))
 
     def _new_playlist(self, tracks):
@@ -1132,7 +1140,7 @@ class MainWindow(QMainWindow):
                        if self.library.playlist_tracks(pid) else None)
         menu.addSeparator()
         menu.addAction(tr("Rename..."), lambda: self._rename_playlist(pid, name))
-        menu.addAction(tr("Export as .m3u8..."), lambda: self._export_playlist(pid, name))
+        menu.addAction(tr("Export..."), lambda: self._export_playlist(pid, name))
         menu.addSeparator()
         menu.addAction(icons.icon("close", theme.RED_BRIGHT, 16), tr("Delete playlist"), lambda: self._delete_playlist(pid, name))
         menu.exec(self.playlists.mapToGlobal(pos))
@@ -1156,31 +1164,105 @@ class MainWindow(QMainWindow):
             self._nav_to("home")
         self.reload_playlists()
 
+    _EXPORT_FILTERS = (("m3u8", "M3U8 - foobar2000, AIMP, MusicBee, {}"), ("pls", "PLS - Winamp"),
+                       ("xspf", "XSPF - VLC"), ("wpl", "WPL - Windows Media Player"), ("json", "JSON - Ampwave"))
+
+    def _export_filters(self):
+        return [f"{label.format(tr('most players'))} (*.{ext})" for ext, label in self._EXPORT_FILTERS]
+
     def _export_playlist(self, pid, name):
-        target, _ = QFileDialog.getSaveFileName(self, tr("Export playlist"),
-                                                os.path.join(self._last_dir(), f"{name}.m3u8"), "M3U8 (*.m3u8)")
+        filters = self._export_filters()
+        target, chosen = QFileDialog.getSaveFileName(
+            self, tr("Export playlist"),
+            os.path.join(self._last_dir(), playlist_io.safe_file_name(name) + ".m3u8"), ";;".join(filters))
         if not target:
             return
+        if not os.path.splitext(target)[1]:
+            target += "." + self._EXPORT_FILTERS[max(0, filters.index(chosen) if chosen in filters else 0)][0]
         try:
-            libmod.write_m3u(target, self.library.playlist_tracks(pid))
+            playlist_io.write(target, name, self.library.playlist_tracks(pid))
             self.toast.show_message(tr("Exported “{name}”", name=name))
         except OSError as exc:
             self.toast.show_message(tr("Export failed: {error}", error=exc), "error")
 
-    def _import_m3u(self):
-        path, _ = QFileDialog.getOpenFileName(self, tr("Import playlist"), self._last_dir(),
-                                              f"{tr('Playlists')} (*.m3u *.m3u8)")
-        if not path:
+    def _export_all_playlists(self):
+        folder = QFileDialog.getExistingDirectory(self, tr("Export all playlists to a folder"), self._last_dir())
+        if not folder:
             return
-        files = libmod.read_m3u(path)
+        done = 0
+        try:
+            for pid, name in self.library.playlists():
+                playlist_io.write(os.path.join(folder, playlist_io.safe_file_name(name) + ".m3u8"), name,
+                                  self.library.playlist_tracks(pid))
+                done += 1
+        except OSError as exc:
+            self.toast.show_message(tr("Export failed: {error}", error=exc), "error")
+            return
+        self.toast.show_message(tr("Exported {n} playlists", n=done))
+
+    def _import_playlists(self, files=None):
         if not files:
-            self.toast.show_message(tr("That playlist has no songs that exist on this computer"), "warning")
+            files, _ = QFileDialog.getOpenFileNames(
+                self, tr("Import playlists"), self._last_dir(),
+                f"{tr('Playlists')} ({' '.join('*' + e for e in playlist_io.IMPORT_EXTS)});;"
+                f"{tr('All files')} (*.*)")
+        if not files:
             return
-        name = os.path.splitext(os.path.basename(path))[0]
-        pid = self.library.create_playlist(name)
-        self.library.set_playlist_paths(pid, files)
+        library = self.library.library_tracks()
+        report = []          # (name, found, missing entries)
+        last_pid = None
+        for path in files:
+            try:
+                name, entries = playlist_io.read(path)
+            except (OSError, ValueError) as exc:
+                report.append((os.path.basename(path), None, str(exc)))
+                continue
+            found, missing = playlist_io.resolve(entries, library, path)
+            if not found:
+                report.append((name, 0, missing))
+                continue
+            taken = {n.casefold() for _, n in self.library.playlists()}
+            unique, i = name, 2
+            while unique.casefold() in taken:
+                unique, i = f"{name} ({i})", i + 1
+            last_pid = self.library.create_playlist(unique)
+            self.library.set_playlist_paths(last_pid, found)
+            report.append((unique, len(found), missing))
         self.reload_playlists()
-        self.toast.show_message(tr("Imported “{name}”", name=name) + f" ({n_songs(len(files))})")
+        ok = [r for r in report if r[1]]
+        if len(report) == 1 and ok and not ok[0][2]:
+            self.toast.show_message(tr("Imported “{name}”", name=ok[0][0]) + f" ({n_songs(ok[0][1])})")
+        else:
+            self._import_report(report)
+        if last_pid is not None and len(ok) == 1:
+            for row in range(self.playlists.count()):
+                if self.playlists.item(row).data(Qt.UserRole) == last_pid:
+                    self.playlists.setCurrentRow(row)
+                    break
+
+    def _import_report(self, report):
+        lines = []
+        for name, found, missing in report:
+            if found is None:
+                lines.append(f"<b>{_html(name)}</b>: {_html(tr('could not read the file'))} ({_html(missing)})")
+                continue
+            total = found + len(missing)
+            head = (tr("{found} of {total} songs found", found=found, total=total) if found
+                    else tr("none of its {total} songs are on this computer", total=total))
+            lines.append(f"<b>{_html(name)}</b>: {_html(head)}")
+            if missing:
+                shown = "".join(f"<br>&nbsp;&nbsp;• {_html(e.label())}" for e in missing[:12])
+                more = len(missing) - 12
+                lines.append(f"<span style='color:{theme.DIM}'>{_html(tr('Not found:'))}{shown}"
+                             + (f"<br>&nbsp;&nbsp;{_html(tr('… and {n} more', n=more))}" if more > 0 else "")
+                             + "</span>")
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Import playlists"))
+        box.setTextFormat(Qt.RichText)
+        box.setText("<br><br>".join(lines) + "<br><br><span style='color:%s'>%s</span>" % (
+            theme.DIM, _html(tr("Songs are matched by path, file name or title and artist. Add the folder "
+                                "with the missing songs to the library and import again."))))
+        box.exec()
 
     # ================================================================== library folders / scanning
     def add_music_folder(self):
@@ -1338,14 +1420,20 @@ class MainWindow(QMainWindow):
     # ================================================================== lyrics view controls
     def toggle_lyrics(self):
         if self.stack.currentWidget() is self.lyrics_page:
-            if self.lyrics_page.lyrics_visible():
-                self.leave_lyrics()
-            else:
-                # from the cover-only view: bring the lyrics in beside the cover
-                self.lyrics_page.show_lyrics_panel(True, animate=True)
-                self.bar.lyrics_btn.setChecked(True)
+            # inside the view the L key only hides or brings back the lyrics (the cover stays);
+            # Esc, the lyrics button or a click on the cover in the player bar leave the view
+            show = not self.lyrics_page.lyrics_visible()
+            self.lyrics_page.show_lyrics_panel(show, animate=True)
+            self.bar.lyrics_btn.setChecked(show)
         else:
             self.show_lyrics()
+
+    def _lyrics_button(self):
+        """The lyrics button in the player bar: opens the lyrics; with the lyrics on screen, goes back."""
+        if self.stack.currentWidget() is self.lyrics_page and self.lyrics_page.lyrics_visible():
+            self.leave_lyrics()
+        else:
+            self.toggle_lyrics()
 
     def toggle_now_playing(self):
         """Cover in the player bar: the song's cover big in the middle (lyrics only on request)."""
