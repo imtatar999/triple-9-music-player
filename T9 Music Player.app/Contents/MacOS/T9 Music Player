@@ -1,0 +1,9 @@
+#!/bin/bash
+# Launcher inside the .app: starts the player from the project folder (no Terminal window)
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$DIR" || exit 1
+if [ ! -x .venv/bin/python ]; then
+    osascript -e 'display dialog "First run the file \"Start T9 Music Player.command\" once (it installs the libraries)." buttons {"OK"}'
+    exit 1
+fi
+exec .venv/bin/python "T9 Music Player.pyw" "$@"
