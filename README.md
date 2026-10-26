@@ -8,7 +8,7 @@
 
 Bit-perfect playback · synced lyrics · a fast library · themes inspired by his albums
 
-[**⬇ Download for Windows**](https://github.com/imtatar999/triple-9-music-player/releases/download/v1.6.4/T9MusicPlayer-Setup-1.6.4.exe) &nbsp;·&nbsp; [**⬇ Download for macOS**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)
+[**⬇ Download for Windows**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe) &nbsp;·&nbsp; [**⬇ Download for macOS**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)
 
 </div>
 
