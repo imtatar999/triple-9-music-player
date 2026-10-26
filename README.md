@@ -4,11 +4,11 @@
 
 # Triple 9 Music Player
 
-**A lossless music player for Windows, made as a tribute to Juice WRLD.**
+**A lossless music player for Windows and macOS, made as a tribute to Juice WRLD.**
 
 Bit-perfect playback · synced lyrics · a fast library · themes inspired by his albums
 
-[**⬇ Download the latest version**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe)
+[**⬇ Download for Windows**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe) &nbsp;·&nbsp; [**⬇ Download for macOS**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)
 
 </div>
 
@@ -58,11 +58,23 @@ corner of every one of them.
 
 ## Install
 
+### Windows
+
 1. Open the **[Releases page](https://github.com/imtatar999/triple-9-music-player/releases)** and download the newest `Triple9MusicPlayer-Setup.exe` from the top release.
 2. Run it. It installs for your user only - no administrator rights needed.
 3. Windows may show *"Windows protected your PC"* simply because this is a small independent program that is not code-signed yet and Windows has not seen many downloads of it - it does not mean anything is wrong: click **More info → Run anyway**.
 
 Windows 10 or 11, 64-bit. No Python or anything else needed.
+
+### macOS
+
+1. Download **[Triple9MusicPlayer-macOS.dmg](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)** from the top release.
+2. Open it and drag **T9 Music Player** into **Applications**.
+3. The app is not notarized by Apple yet, so the first time macOS says it *"cannot be opened"*:
+   right-click the app in Applications → **Open** → **Open** (or *System Settings → Privacy & Security → Open Anyway*).
+   After that it opens normally.
+
+macOS 11 or newer, Apple Silicon (M1/M2/M3/M4). No Python or anything else needed.
 
 ## Updates
 
@@ -97,7 +109,7 @@ Album titles and artwork belong to their owners.
 
 ### 🇵🇱 Po polsku
 
-**Triple 9 Music Player** to bezstratny odtwarzacz muzyki dla Windows, zrobiony jako hołd dla Juice WRLDa:
+**Triple 9 Music Player** to bezstratny odtwarzacz muzyki dla Windows i macOS, zrobiony jako hołd dla Juice WRLDa:
 dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspirowane jego albumami.
 **999** to odwrócone 666 - wszystko złe, przez co przechodzisz, zamień w coś dobrego.
 
@@ -105,4 +117,6 @@ dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspir
 `Triple9MusicPlayer-Setup.exe` z najwyższego wydania i uruchom go. Windows może pokazać *„System Windows ochronił ten komputer”*,
 bo to mały niezależny program bez podpisu cyfrowego, którego Windows jeszcze nie zna - to nie znaczy, że coś jest nie tak:
 kliknij *Więcej informacji → Uruchom mimo to*.
+Na Macu pobierz `Triple9MusicPlayer-macOS.dmg`, otwórz go i przeciągnij **T9 Music Player** do folderu **Aplikacje**.
+Za pierwszym razem kliknij aplikację prawym przyciskiem → *Otwórz* → *Otwórz* (program nie jest jeszcze notaryzowany przez Apple).
 Nowe wersje program wykrywa sam i proponuje ich instalację.
