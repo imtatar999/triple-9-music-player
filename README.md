@@ -8,7 +8,7 @@
 
 Bit-perfect playback · synced lyrics · a fast library · themes inspired by his albums
 
-[**⬇ Download for Windows**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-Setup.exe) &nbsp;·&nbsp; [**⬇ Download for macOS**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)
+[**⬇ Download for Windows**](https://github.com/imtatar999/triple-9-music-player/releases/download/v1.6.4/T9MusicPlayer-Setup-1.6.4.exe) &nbsp;·&nbsp; [**⬇ Download for macOS**](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)
 
 </div>
 
@@ -70,9 +70,15 @@ Windows 10 or 11, 64-bit. No Python or anything else needed.
 
 1. Download **[Triple9MusicPlayer-macOS.dmg](https://github.com/imtatar999/triple-9-music-player/releases/latest/download/Triple9MusicPlayer-macOS.dmg)** from the top release.
 2. Open it and drag **T9 Music Player** into **Applications**.
-3. The app is not notarized by Apple yet, so the first time macOS says it *"cannot be opened"*:
-   right-click the app in Applications → **Open** → **Open** (or *System Settings → Privacy & Security → Open Anyway*).
-   After that it opens normally.
+3. **If macOS refuses to open it** (*"cannot be opened because it is from an unidentified developer"* or
+   *"Apple could not verify..."*): this is normal for a small independent app that is not notarized by Apple yet -
+   nothing is wrong with the file. Open it like this, you only need to do it once:
+   - Try to open **T9 Music Player** once (double-click). Click **Done** / **OK** on the warning.
+   - Open **System Settings → Privacy & Security**, scroll down to the message *"T9 Music Player was blocked..."*
+     and click **Open Anyway**, then confirm with your password or Touch ID.
+   - On older macOS versions you can instead right-click the app → **Open** → **Open**.
+   - If it says the app is *"damaged and can't be opened"*, open **Terminal** and run this, then open the app again:
+     `xattr -dr com.apple.quarantine "/Applications/T9 Music Player.app"`
 
 macOS 11 or newer, Apple Silicon (M1/M2/M3/M4). No Python or anything else needed.
 
@@ -118,5 +124,5 @@ dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspir
 bo to mały niezależny program bez podpisu cyfrowego, którego Windows jeszcze nie zna - to nie znaczy, że coś jest nie tak:
 kliknij *Więcej informacji → Uruchom mimo to*.
 Na Macu pobierz `Triple9MusicPlayer-macOS.dmg`, otwórz go i przeciągnij **T9 Music Player** do folderu **Aplikacje**.
-Za pierwszym razem kliknij aplikację prawym przyciskiem → *Otwórz* → *Otwórz* (program nie jest jeszcze notaryzowany przez Apple).
+Jeśli macOS nie chce jej otworzyć („od niezidentyfikowanego dewelopera”), to normalne - program nie jest jeszcze notaryzowany przez Apple. Otwórz *Ustawienia systemowe → Prywatność i ochrona*, zjedź na dół i kliknij *Otwórz mimo to* przy komunikacie o T9 Music Player (wystarczy raz). Przy komunikacie „uszkodzona” wpisz w Terminalu: `xattr -dr com.apple.quarantine "/Applications/T9 Music Player.app"`.
 Nowe wersje program wykrywa sam i proponuje ich instalację.
