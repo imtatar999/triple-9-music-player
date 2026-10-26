@@ -123,30 +123,3 @@ Triple 9 Music Player is free. You can support it on **[Ko-fi](https://ko-fi.com
 We are currently raising money to **bring our Triple 9 Music Player to the App Store**.
 
 [![Support on Ko-fi](https://img.shields.io/badge/Support%20on-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/imtatar999)
-
----
-
-### 🇵🇱 Po polsku
-
-**Triple 9 Music Player** to bezstratny odtwarzacz muzyki dla Windows i macOS, zrobiony jako hołd dla Juice WRLDa:
-dźwięk bit-perfect, zsynchronizowane teksty, szybka biblioteka i motywy inspirowane jego albumami.
-**999** to odwrócone 666 - wszystko złe, przez co przechodzisz, zamień w coś dobrego.
-
-**Instalacja:** wejdź na [stronę wydań](https://github.com/imtatar999/triple-9-music-player/releases), pobierz najnowszy
-`Triple9MusicPlayer-Setup.exe` z najwyższego wydania i uruchom go. Windows może pokazać *„System Windows ochronił ten komputer”*,
-bo to mały niezależny program bez podpisu cyfrowego, którego Windows jeszcze nie zna - to nie znaczy, że coś jest nie tak:
-kliknij *Więcej informacji → Uruchom mimo to*.
-Na Macu pobierz `Triple9MusicPlayer-macOS.dmg`, otwórz go i przeciągnij **T9 Music Player** do folderu **Aplikacje**.
-Jeśli macOS nie chce jej otworzyć („od niezidentyfikowanego dewelopera”), to normalne - program nie jest jeszcze notaryzowany przez Apple. Otwórz *Ustawienia systemowe → Prywatność i ochrona*, zjedź na dół i kliknij *Otwórz mimo to* przy komunikacie o T9 Music Player (wystarczy raz). Przy komunikacie „uszkodzona” wpisz w Terminalu: `xattr -dr com.apple.quarantine "/Applications/T9 Music Player.app"`.
-Nowe wersje program wykrywa sam i proponuje ich instalację.
-
-### Nasz drugi program: Triple 9 Studio
-
-**[Triple 9 Studio](https://github.com/imtatar999/Triple-9-Studio)** to nasz drugi program dla Windows. Znajduje i tworzy teksty do Twojej muzyki oraz
-**synchronizuje je w czasie** (rozpoznawanie mowy Whisper) do plików `.lrc`, które ten odtwarzacz pokazuje linijka po linijce.
-Ma też tabelę utworów w stylu Mp3tag, masową edycję metadanych i narzędzia wyszukujące błędy w zsynchronizowanych tekstach.
-
-### Wesprzyj projekt
-
-Triple 9 Music Player jest darmowy. Możesz go wesprzeć na **[Ko-fi](https://ko-fi.com/imtatar999)** - bez zakładania konta.
-Zbieramy obecnie na **dodanie naszego Triple 9 Music Player do App Store**.
