@@ -117,6 +117,10 @@ Album titles and artwork belong to their owners.
 music, and **time-syncs** them with Whisper speech recognition into `.lrc` files that this player shows line by line.
 It also has a sortable Mp3tag-style track table, batch metadata editing and tools that scan your synced lyrics for timing mistakes.
 
+## Community
+
+Questions, bug reports and news: join our Discord server **[Triple 9 Player and Studio](https://discord.gg/t65dA8EGy5)**.
+
 ## Support the project
 
 Triple 9 Music Player is free. You can support it on **[Ko-fi](https://ko-fi.com/imtatar999)** - no account needed.
