@@ -117,9 +117,16 @@ Album titles and artwork belong to their owners.
 music, and **time-syncs** them with Whisper speech recognition into `.lrc` files that this player shows line by line.
 It also has a sortable Mp3tag-style track table, batch metadata editing and tools that scan your synced lyrics for timing mistakes.
 
-## Community
+## Community, bugs and feature requests
 
-Questions, bug reports and news: join our Discord server **[Triple 9 Player and Studio](https://discord.gg/t65dA8EGy5)**.
+Join our Discord server **[Triple 9 Player and Studio](https://discord.gg/t65dA8EGy5)** to:
+
+- 🐞 **report bugs** in `#bug-reports` (one thread per bug - tell us what you did, what you expected and what happened),
+- 💡 **request features** in `#feature-requests`,
+- ❓ ask for help in `#help`, chat in `#general`, and share synced lyrics (`.lrc`) in `#share-lrc`,
+- 📢 see new versions in `#updates`.
+
+You can also open an [issue on GitHub](https://github.com/imtatar999/triple-9-music-player/issues).
 
 ## Support the project
 
