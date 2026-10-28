@@ -338,6 +338,87 @@ class Library:
             self.tracks[p].in_library = 0
         return len(hide)
 
+    # ------------------------------------------------------------------ songs that moved
+    def _has_history(self, t, in_playlists):
+        return bool(t.plays or t.favorite or t.lyrics_offset or t.path in in_playlists)
+
+    def missing_tracks(self):
+        """Songs whose file is not there any more and that still matter: they are shown in the library, or they
+        carry play counts / favorites / playlist places that would be lost."""
+        with self._lock:
+            rows = self.conn.execute("SELECT DISTINCT path FROM playlist_items").fetchall()
+        in_playlists = {r["path"] for r in rows}
+        return [t for t in list(self.tracks.values())
+                if (t.in_library or self._has_history(t, in_playlists)) and not os.path.isfile(t.path)]
+
+    def apply_moves(self, moves):
+        """Point songs at their new files {old path: new path}. Play counts, favorites, lyrics timing, playlist places
+        and loudness stay with the song. When the new file is already in the library as its own entry (it was
+        scanned before), the two entries are merged. Returns {"moved": n, "merged": n}."""
+        moved = merged = 0
+        with self._lock:
+            for old, new in moves.items():
+                t = self.tracks.get(old)
+                if t is None or old == new or not os.path.isfile(new):
+                    continue
+                other = self.tracks.get(new)
+                if other is not None and other is not t:
+                    other.plays += t.plays
+                    other.last_played = max(other.last_played, t.last_played)
+                    other.favorite = 1 if (t.favorite or other.favorite) else 0
+                    if not other.lyrics_offset:
+                        other.lyrics_offset = t.lyrics_offset
+                    other.added = min([x for x in (t.added, other.added) if x] or [0.0])
+                    other.in_library = 1
+                    self.conn.execute("UPDATE tracks SET plays=?, last_played=?, favorite=?, lyrics_offset=?, added=?, "
+                                      "in_library=1 WHERE path=?", (other.plays, other.last_played, other.favorite,
+                                                                    other.lyrics_offset, other.added, new))
+                    self.conn.execute("DELETE FROM tracks WHERE path=?", (old,))
+                    del self.tracks[old]
+                    merged += 1
+                else:
+                    # mtime 0: the next scan reads the tags of the file in its new place again (stats stay)
+                    self.conn.execute("UPDATE tracks SET path=?, mtime=0, in_library=1 WHERE path=?", (new, old))
+                    del self.tracks[old]
+                    t.path, t.mtime, t.in_library = new, 0.0, 1
+                    self.tracks[new] = t
+                    moved += 1
+                self.conn.execute("UPDATE playlist_items SET path=? WHERE path=?", (new, old))
+                self.conn.execute("UPDATE OR REPLACE loudness SET path=? WHERE path=?", (new, old))
+            self.conn.commit()
+        return {"moved": moved, "merged": merged}
+
+    def relocate_from(self, folders, cancel=None):
+        """Look for the missing songs in `folders` (a new place) and move their entries there.
+        Returns {"missing": n before, "found": n, "left": n still missing, "moves": {old: new}}."""
+        from . import relocate
+        cancel = cancel or threading.Event()
+        missing = self.missing_tracks()
+        files = {p: size for p, (_, size) in self._walk(folders, cancel).items()}
+        cache = {}
+
+        def tags_of(path):
+            if path not in cache:
+                known = self.tracks.get(path)
+                if known is not None:
+                    cache[path] = (known.title, known.artist or known.albumartist, known.album, known.duration)
+                else:
+                    info = meta.read_tags(path)
+                    cache[path] = (info["title"], info["artist"] or info["albumartist"], info["album"], info["duration"])
+            return cache[path]
+
+        def prefetch(paths):
+            todo = [p for p in paths if p not in cache and p not in self.tracks]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for p, info in zip(todo, pool.map(meta.read_tags, todo)):
+                    cache[p] = (info["title"], info["artist"] or info["albumartist"], info["album"], info["duration"])
+
+        moves = relocate.find_moves(missing, files, tags_of, prefetch)
+        if cancel.is_set():
+            return {"missing": len(missing), "found": 0, "left": len(missing), "moves": {}}
+        self.apply_moves(moves)
+        return {"missing": len(missing), "found": len(moves), "left": len(missing) - len(moves), "moves": moves}
+
     # ------------------------------------------------------------------ playlists
     def playlists(self):
         with self._lock:

@@ -392,8 +392,14 @@ class Player(QObject):
         self.speed = speed
         self.engine.reconfigure(speed=speed)
 
+    def set_eq(self, enabled, preamp, bands):
+        """Equalizer: on/off, preamp and the band sliders (all in dB)."""
+        self.engine.set_eq(enabled, preamp, bands)
+        self.output_changed.emit(self.output_info)
+
     def apply_output_settings(self):
         s = self.settings
+        self.engine.set_eq(s["eq_enabled"], s["eq_preamp"], s["eq_bands"])
         self.engine.gapless = s["gapless"]
         self.engine.reconfigure(s["output_device"], s["exclusive_mode"], s["buffer_ms"], s["crossfade"])
         if s["normalize"] != self.normalizer.mode:

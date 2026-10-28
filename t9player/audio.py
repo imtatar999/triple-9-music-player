@@ -28,6 +28,7 @@ import traceback
 
 import numpy as np
 
+from . import equalizer as eqmod
 from .avcompat import open_av
 from .i18n import tr
 
@@ -556,6 +557,7 @@ class AudioEngine:
         self.gapless = True
         self.crossfade = 0          # seconds; > 0 mixes the end of a song into the next one
         self._xf = None             # running crossfade state
+        self.eq = eqmod.Equalizer()  # graphic equalizer, applied in the callback (not bit-perfect while on)
         self.speed = 1.0            # playback speed; != 1 decodes to float and time-stretches (not bit-perfect)
         self._cb_speed = 1.0        # speed of the block the callback played last (written by the callback)
         self.normalize = False      # volume normalization on: every song decodes to float with its gain
@@ -611,6 +613,10 @@ class AudioEngine:
 
     def set_next(self, path, token):
         self._cmd.put(("next", path, token))
+
+    def set_eq(self, enabled, preamp_db, bands_db):
+        """Equalizer sliders. Moving them is heard at once; switching it on or off reopens the output."""
+        self._cmd.put(("eq", bool(enabled), float(preamp_db), tuple(bands_db)))
 
     def set_gain(self, path, gain):
         """Volume normalization gain for a song (before it loads, or while it plays - then it glides)."""
@@ -680,6 +686,8 @@ class AudioEngine:
         except Exception:
             stream = self._stream
             lag = float(stream.latency) if stream is not None else 0.1
+        if self.eq.enabled:
+            lag += eqmod.delay_seconds(self._cb_rate)      # the filter holds the sound back a little
         written = 0
         block_pos = None
         with self._lock:
@@ -716,6 +724,8 @@ class AudioEngine:
             self._cb_lag = lag
             if self._seek_target is not None and now - self._seek_perf > 0.05:
                 self._seek_target = None
+        if self.eq.enabled and out.dtype == np.float32:
+            out[:] = self.eq.process(out, self._cb_rate)
         self._apply_gain(out)
 
     def _apply_gain(self, out):
@@ -790,7 +800,7 @@ class AudioEngine:
     def _handle(self, cmd):
         kind = cmd[0]
         self._sync_token()
-        if kind not in ("next", "gain") and not (kind in ("seek", "load") and self._newer_queued(kind)):
+        if kind not in ("next", "gain", "eq") and not (kind in ("seek", "load") and self._newer_queued(kind)):
             _log.info("cmd %s %s (state %s, at %.1f s)", kind,
                       " ".join(os.path.basename(str(c)) if isinstance(c, str) else str(c) for c in cmd[1:3]),
                       self.state, self.position())
@@ -799,6 +809,17 @@ class AudioEngine:
             self._remember(token, path)
             if not self._newer_queued("load"):      # fast skipping: only the newest matters
                 self._load(path, token, start, paused)
+        elif kind == "eq":
+            _, enabled, preamp, bands = cmd
+            was = self.eq.enabled
+            self.eq.set(enabled, preamp, bands)
+            if self.eq.enabled != was:
+                # the filter needs float samples: reopen the output at the same place in the song
+                pos = self.position()
+                active = self.state != STATE_STOPPED
+                self._close_stream()
+                if active:
+                    self._reopen(pos, paused=self.state == STATE_PAUSED)
         elif kind == "gain":
             _, path, gain = cmd
             if not self.normalize:
@@ -957,7 +978,7 @@ class AudioEngine:
 
     def _open(self, path, start=0.0):
         dec = Decoder(path, start=start)
-        if self.crossfade > 0 or self.normalize or self.speed != 1.0:
+        if self.crossfade > 0 or self.normalize or self.speed != 1.0 or self.eq.enabled:
             dec.force_float()
         if self.speed != 1.0:
             dec.set_speed(self.speed)
@@ -1124,6 +1145,7 @@ class AudioEngine:
             self._buf.clear()
             self._buf_frames = 0
             self._off = 0
+        self.eq.reset()
 
     def _drop_xfade(self):
         if self._xf is not None:
@@ -1365,6 +1387,7 @@ class AudioEngine:
                 "native": dec.native and not resampled and dec._int_scale is None,
                 "crossfade": self.crossfade,
                 "normalize": self.normalize,
+                "eq": self.eq.enabled,
                 "speed": self.speed,
                 "latency": float(stream.latency),
             }
@@ -1389,7 +1412,7 @@ def is_bit_perfect(info, volume, muted):
     """True only when the device accepted our exact sample format at the file's own rate."""
     return bool(
         info and info.get("exclusive") and info.get("explicit_format") and info.get("native")
-        and not info.get("float") and not muted and volume >= 0.999
+        and not info.get("float") and not info.get("eq") and not muted and volume >= 0.999
     )
 
 
@@ -1414,6 +1437,8 @@ def describe_output(info, volume=1.0, muted=False):
         parts.append(tr("resampled from {khz} kHz", khz="%g" % round(info.get("src_rate", 0) / 1000.0, 1)))
     if info.get("crossfade"):
         parts.append(tr("crossfade {n} s", n=info["crossfade"]))
+    if info.get("eq"):
+        parts.append(tr("equalizer"))
     if info.get("normalize"):
         parts.append(tr("volume normalized"))
     if info.get("speed", 1.0) != 1.0:

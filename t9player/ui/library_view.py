@@ -409,6 +409,7 @@ class TrackTable(QTableView):
         super().__init__(parent)
         self.hover_row = -1
         self.hover_button = False
+        self._on_play_button = False
         self.embedded = embedded
         self.compact = False
         self._drop_row = None           # where a dragged song would land (drawn as a line)
@@ -705,13 +706,25 @@ class TrackTable(QTableView):
         if event.button() == Qt.LeftButton and self._on_button(event.position().toPoint()):
             row = self.indexAt(event.position().toPoint()).row()
             self.selectRow(row)
+            self._on_play_button = True          # the view never saw this press: ignore the drag that follows
+            event.accept()
             self.play_clicked.emit(row)
             return
+        self._on_play_button = False
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._on_play_button:
+            self._on_play_button = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton and self._on_button(event.position().toPoint()):
             # a quick second click on the button is just another click (pause again)
+            self._on_play_button = True
+            event.accept()
             self.play_clicked.emit(self.indexAt(event.position().toPoint()).row())
             return
         super().mouseDoubleClickEvent(event)
@@ -739,6 +752,8 @@ class TrackTable(QTableView):
                 if r >= 0:
                     self.viewport().update(self.visualRect(self.model_.index(r, 0)).united(
                         self.visualRect(self.model_.index(r, len(COLUMNS) - 1))))
+        if self._on_play_button:
+            return              # holding the play button and moving must not drag out a selection
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event):

@@ -15,6 +15,11 @@ DEFAULTS = {
     "gapless": True,
     "crossfade": 0,                 # seconds of overlap between songs, 0 = off (bit-perfect)
     "normalize": "off",             # volume normalization: off | track | album
+    "eq_enabled": False,            # graphic equalizer
+    "eq_preamp": 0.0,               # dB, -12..12
+    "eq_bands": [],                 # dB per band, -12..12 (empty = flat)
+    "eq_preset": "Flat",            # name shown in the equalizer window
+    "eq_custom": {},                # name -> {"preamp": dB, "bands": [dB, ...]} saved by the user
     "resume_on_start": True,
     "volume": 0.8,
     "muted": False,
@@ -46,6 +51,7 @@ DEFAULTS = {
     "list_density": "list",         # list | compact
     "list_sort": {},                # view -> [sort key, descending]
     "rescan_on_start": True,
+    "relocate_ignored": "",         # fingerprint of the missing songs the user chose not to be asked about again
     # Window
     "minimize_to_tray": False,
     "global_media_keys": True,
@@ -70,6 +76,11 @@ _VALIDATORS = {
     "lyrics_order": lambda v: isinstance(v, list) and all(x in ("embedded", "lrc", "txt") for x in v),
     "crossfade": lambda v: isinstance(v, int) and 0 <= v <= 12,
     "normalize": lambda v: v in ("off", "track", "album"),
+    "eq_preamp": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and -12.0 <= v <= 12.0,
+    "eq_bands": lambda v: isinstance(v, list) and all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                                                      and -12.0 <= x <= 12.0 for x in v),
+    "eq_preset": lambda v: isinstance(v, str),
+    "eq_custom": lambda v: isinstance(v, dict),
     "language": lambda v: v in ("auto", "en", "pl"),
     "list_density": lambda v: v in ("list", "compact"),
     "unlocked_themes": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),

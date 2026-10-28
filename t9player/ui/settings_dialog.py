@@ -133,6 +133,8 @@ class SettingsDialog(QDialog):
     audio_changed = Signal()
     folders_changed = Signal(list, list)      # new list, removed folders
     rescan_requested = Signal()
+    equalizer_requested = Signal()
+    find_moved_requested = Signal()
     update_check_requested = Signal()
     tour_requested = Signal()
     restart_requested = Signal()
@@ -364,6 +366,14 @@ class SettingsDialog(QDialog):
             "so it is not bit-perfect - set it to Off for pure lossless playback.")))
         self._on_crossfade_moved(s["crossfade"])
 
+        eq_row = QHBoxLayout()
+        eq_btn = QPushButton(tr("Equalizer..."))
+        eq_btn.setToolTip(tr("Bass, treble and everything between - with presets"))
+        eq_btn.clicked.connect(self.equalizer_requested)
+        eq_row.addWidget(eq_btn)
+        eq_row.addStretch(1)
+        form.addRow(tr("Sound shaping"), eq_row)
+
         self.normalize = QComboBox()
         for key, label in (("off", "Off"), ("track", "Same loudness for every song"),
                            ("album", "Same loudness for every album")):
@@ -585,9 +595,14 @@ class SettingsDialog(QDialog):
         add.clicked.connect(self._add_folder)
         remove.clicked.connect(self._remove_folder)
         rescan.clicked.connect(self.rescan_requested)
+        moved = QPushButton(tr("Find moved songs..."))
+        moved.setToolTip(tr("Moved your music to another folder or drive? Point the player to the new place and "
+                            "keep play counts, favorites and playlists"))
+        moved.clicked.connect(self.find_moved_requested)
         row.addWidget(add)
         row.addWidget(remove)
         row.addStretch(1)
+        row.addWidget(moved)
         row.addWidget(rescan)
         lay.addLayout(row)
         self.rescan_start = QCheckBox(tr("Check folders for changes every time the player starts"))
@@ -617,6 +632,11 @@ class SettingsDialog(QDialog):
         self.settings.set("library_folders", current)
         self.folders.addItem(folder)
         self.folders_changed.emit(current, [])
+
+    def set_folders(self, folders):
+        """The list changed outside the dialog (after moved songs were found)."""
+        self.folders.clear()
+        self.folders.addItems(folders)
 
     def _remove_folder(self):
         item = self.folders.currentItem()

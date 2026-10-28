@@ -446,6 +446,11 @@ QSlider::sub-page:horizontal {{ background: {RED}; border-radius: 2px; }}
 QSlider::handle:horizontal {{
     background: {TEXT}; width: 12px; height: 12px; margin: -4px 0; border-radius: 6px;
 }}
+QSlider::groove:vertical {{ width: 4px; background: {SCROLL}; border-radius: 2px; }}
+QSlider::handle:vertical {{
+    background: {TEXT}; width: 14px; height: 10px; margin: 0 -5px; border-radius: 3px;
+}}
+QSlider::handle:vertical:hover {{ background: {RED_BRIGHT}; }}
 QProgressBar {{
     background: {PANEL}; border: none; border-radius: 2px; height: 4px; text-align: center;
 }}

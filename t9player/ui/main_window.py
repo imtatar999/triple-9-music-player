@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QDialog, QFileDialog,
                                QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-                               QPushButton, QSystemTrayIcon, QTableView,
+                               QProgressDialog, QPushButton, QSystemTrayIcon, QTableView,
                                QVBoxLayout, QWidget)
 
 from .. import (APP_NAME, APP_VERSION, audio, icons, library as libmod, meta, paths, playlist_io, theme, updater,
@@ -52,6 +52,8 @@ class _Bridge(QObject):
     update_checked = Signal(object, bool)    # (version, path or url, size) or None, manual check?
     update_progress = Signal(int, int)       # downloaded bytes, total
     update_downloaded = Signal(object)       # installer path, or the error
+    missing_found = Signal(list, bool)       # paths of songs that cannot be found, asked for by the user?
+    relocate_done = Signal(dict)             # result of looking for the moved songs
 
 
 class Sidebar(DecorBackground):
@@ -75,6 +77,9 @@ class MainWindow(QMainWindow):
         self.player = player
         self.covers = covers
         self.bridge = _Bridge()
+        self._relocating = False
+        self._relocate_progress = None
+        self._eq_dialog = None
         self._lyrics_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="T9Lyrics")
         self._files_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="T9Files")
         self._current_lyrics = None
@@ -350,6 +355,8 @@ class MainWindow(QMainWindow):
         self.covers.cover_ready.connect(self._on_cover)
         self.bridge.scan_progress.connect(self._on_scan_progress)
         self.bridge.scan_done.connect(self._on_scan_done)
+        self.bridge.missing_found.connect(self._on_missing_found)
+        self.bridge.relocate_done.connect(self._on_relocate_done)
         self.bridge.lyrics_ready.connect(self._on_lyrics_ready)
         self.bridge.files_ready.connect(self._play_track_list)
         self.bridge.update_checked.connect(self._on_update_checked)
@@ -372,6 +379,7 @@ class MainWindow(QMainWindow):
         if ((self.settings["rescan_on_start"] or self.library.needs_rescan)
                 and self.settings["library_folders"]):
             QTimer.singleShot(1500, self.rescan)
+        QTimer.singleShot(3500, lambda: self._find_missing(manual=False))
         if (getattr(self, "fresh_install", False) or os.environ.get("T9_SHOW_TOUR")) and not self.settings["tour_done"]:
             QTimer.singleShot(900, self.show_tour)
         last = self.settings["last_run_version"]
@@ -1341,6 +1349,141 @@ class MainWindow(QMainWindow):
         self.refresh_view()
         self._update_welcome()
 
+    # ------------------------------------------------------------------ songs that moved
+    MISSING_ASK_FROM = 5            # ask by itself only when at least this many songs cannot be found
+
+    def _find_missing(self, manual=True):
+        """Look (off the UI thread) for songs whose files are gone; offer to point the player to the new place."""
+        b = self.bridge
+
+        def job():
+            try:
+                paths_ = [t.path for t in self.library.missing_tracks()]
+            except Exception:
+                paths_ = []
+            b.missing_found.emit(paths_, manual)
+        self._files_pool.submit(job)
+
+    @staticmethod
+    def _missing_fingerprint(missing):
+        import hashlib
+        return hashlib.sha1("\n".join(sorted(missing)).encode("utf-8", "surrogatepass")).hexdigest()
+
+    def _on_missing_found(self, missing, manual):
+        if not missing:
+            if manual:
+                QMessageBox.information(self, tr("Find moved songs"),
+                                        tr("Every song in your library was found where it should be."))
+            return
+        fingerprint = self._missing_fingerprint(missing)
+        if not manual and (len(missing) < self.MISSING_ASK_FROM or fingerprint == self.settings["relocate_ignored"]):
+            return
+        if self._relocating:
+            return
+        folder = os.path.dirname(missing[0])
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(tr("Songs not found"))
+        box.setText(tr("{what} of your library cannot be found where they used to be (for example in {folder}).",
+                       what=n_songs(len(missing)), folder=folder))
+        box.setInformativeText(tr("If you moved them, point the player to their new folder: play counts, favorites "
+                                  "and playlists stay with the songs."))
+        choose = box.addButton(tr("Choose the new folder..."), QMessageBox.AcceptRole)
+        box.addButton(tr("Not now"), QMessageBox.RejectRole)
+        never = box.addButton(tr("Do not ask again"), QMessageBox.DestructiveRole)
+        box.exec()
+        if box.clickedButton() is choose:
+            self._choose_new_place()
+        elif box.clickedButton() is never:
+            self.settings.set("relocate_ignored", fingerprint)
+
+    def _choose_new_place(self):
+        folder = QFileDialog.getExistingDirectory(self, tr("Where did you move your music to?"),
+                                                  paths.default_music_dir())
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        self._relocating = True
+        dlg = QProgressDialog(tr("Looking for your songs..."), "", 0, 0, self)
+        dlg.setWindowTitle(tr("Find moved songs"))
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.show()
+        self._relocate_progress = dlg
+        b = self.bridge
+
+        def job():
+            try:
+                result = self.library.relocate_from([folder])
+            except Exception as exc:
+                result = {"error": str(exc), "missing": 0, "found": 0, "left": 0, "moves": {}}
+            result["folder"] = folder
+            b.relocate_done.emit(result)
+        self._files_pool.submit(job)
+
+    def _on_relocate_done(self, result):
+        self._relocating = False
+        if self._relocate_progress is not None:
+            self._relocate_progress.close()
+            self._relocate_progress = None
+        if result.get("error"):
+            QMessageBox.warning(self, tr("Find moved songs"), tr("Scan problem: {error}", error=result["error"]))
+            return
+        moves, folder = result.get("moves", {}), result["folder"]
+        if moves:
+            self._remap_stored_paths(moves)
+            folders = list(self.settings["library_folders"])
+            if not libmod._under_any(folder, folders):
+                folders.append(folder)
+            still = [t for t in self.library.missing_tracks() if t.in_library]
+            # a folder that is gone and has no missing songs left is the old place: drop it from the list
+            folders = [f for f in folders if os.path.isdir(f) or any(libmod._under_any(t.path, [f]) for t in still)]
+            self.settings.set("library_folders", folders)
+            if self._settings_dialog is not None:
+                self._settings_dialog.set_folders(folders)
+            self._collection = None
+            self.rescan()
+            self.refresh_view()
+            self._update_welcome()
+        if result["found"]:
+            text = tr("Found {found} of {total} songs in the new place. Play counts, favorites and playlists moved "
+                      "with them.", found=result["found"], total=result["missing"])
+        else:
+            text = tr("None of the missing songs were found in that folder.")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle(tr("Find moved songs"))
+        box.setText(text)
+        again = None
+        if result["left"]:
+            box.setInformativeText(tr("{what} still cannot be found.", what=n_songs(result["left"])))
+            again = box.addButton(tr("Choose another folder..."), QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if again is not None and box.clickedButton() is again:
+            self._choose_new_place()
+
+    def _remap_stored_paths(self, moves):
+        """Everything besides the library that remembers a song by its path: the queue of the last session and the
+        covers / artist pictures taken from a song."""
+        data = read_json(paths.SESSION_FILE, {})
+        queue = data.get("queue")
+        if isinstance(queue, list) and any(q in moves for q in queue):
+            data["queue"] = [moves.get(q, q) for q in queue]
+            write_json_atomic(paths.SESSION_FILE, data)
+        for key in ("album_covers", "artist_pictures"):
+            current = dict(self.settings[key])
+            changed = False
+            for name, entry in current.items():
+                if isinstance(entry, dict) and entry.get("source") == "track" and entry.get("path") in moves:
+                    current[name] = dict(entry, path=moves[entry["path"]])
+                    changed = True
+            if changed:
+                self.settings.set(key, current)
+        self.covers.overrides = dict(self.settings["album_covers"])
+        self.covers.artist_overrides = dict(self.settings["artist_pictures"])
+
     def _on_folders_changed(self, folders, removed):
         for folder in removed:
             self.library.remove_folder_tracks(folder, folders)
@@ -1607,6 +1750,8 @@ class MainWindow(QMainWindow):
             dlg.audio_changed.connect(self.player.apply_output_settings)
             dlg.folders_changed.connect(self._on_folders_changed)
             dlg.rescan_requested.connect(self.rescan)
+            dlg.equalizer_requested.connect(self.open_equalizer)
+            dlg.find_moved_requested.connect(lambda: self._find_missing(manual=True))
             dlg.update_check_requested.connect(lambda: self.check_for_update(manual=True))
             dlg.tour_requested.connect(lambda: QTimer.singleShot(150, self.show_tour))
             dlg.restart_requested.connect(self.restart)
@@ -1616,6 +1761,20 @@ class MainWindow(QMainWindow):
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
+
+    def open_equalizer(self):
+        from .equalizer_dialog import EqualizerDialog
+        if self._eq_dialog is None:
+            dlg = EqualizerDialog(self.settings, self)
+            dlg.changed.connect(self._apply_eq)
+            self._eq_dialog = dlg
+        self._eq_dialog.show()
+        self._eq_dialog.raise_()
+        self._eq_dialog.activateWindow()
+
+    def _apply_eq(self):
+        s = self.settings
+        self.player.set_eq(s["eq_enabled"], s["eq_preamp"], s["eq_bands"])
 
     def _set_anim(self, on):
         if self._welcome_anim is not None:
@@ -1866,7 +2025,8 @@ class MainWindow(QMainWindow):
         p = self.player
         if event.isAutoRepeat() and key not in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
             # holding a key must not toggle play/pause, shuffle ... over and over
-            return not typing and key in (Qt.Key_Space, Qt.Key_M, Qt.Key_S, Qt.Key_R, Qt.Key_F, Qt.Key_L, Qt.Key_Q)
+            return not typing and key in (Qt.Key_Space, Qt.Key_M, Qt.Key_S, Qt.Key_R, Qt.Key_F, Qt.Key_L,
+                                      Qt.Key_Q, Qt.Key_E)
         if key in (Qt.Key_MediaPlay, Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPause):
             p.play_pause()
             return True
@@ -1944,13 +2104,17 @@ class MainWindow(QMainWindow):
             elif self.queue_panel.isVisible():
                 self.toggle_queue()
             return True
-        if in_table and Qt.Key_A <= key <= Qt.Key_Z and key not in (Qt.Key_L, Qt.Key_M, Qt.Key_S, Qt.Key_R, Qt.Key_F, Qt.Key_Q):
+        if in_table and Qt.Key_A <= key <= Qt.Key_Z and key not in (Qt.Key_L, Qt.Key_M, Qt.Key_S, Qt.Key_R,
+                                                                    Qt.Key_F, Qt.Key_Q, Qt.Key_E):
             return False
         if key == Qt.Key_L:
             if self._mini is not None and self._mini.isVisible():
                 self._mini.btn_lyrics.toggle()
             else:
                 self.toggle_lyrics()
+            return True
+        if key == Qt.Key_E:
+            self.open_equalizer()
             return True
         if key == Qt.Key_M:
             p.toggle_mute()
